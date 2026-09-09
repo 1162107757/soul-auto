@@ -6,24 +6,53 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import kotlin.math.abs
 
 class FloatingButtonService : Service() {
 
+    private enum class DockSide { LEFT, RIGHT }
+
     private lateinit var windowManager: WindowManager
-    private var floatView: TextView? = null
-    private var statusPanel: TextView? = null
+    private var floatView: LinearLayout? = null
+    private var windowParams: WindowManager.LayoutParams? = null
+    private var expandedView: LinearLayout? = null
+    private var collapsedView: LinearLayout? = null
+    private var statusTitleTv: TextView? = null
+    private var nextActionTv: TextView? = null
+    private var actionTv: TextView? = null
+    private var statusDot: View? = null
+    private var collapsedChevron: ImageView? = null
+    private var collapsedActionIcon: ImageView? = null
+    private var isCollapsed = false
+    private var dockSide = DockSide.RIGHT
+    private var lastRenderedRunning: Boolean? = null
     private val handler = Handler(Looper.getMainLooper())
+    private val autoCollapseRunnable = Runnable {
+        if (!isCollapsed) setCollapsed(true)
+    }
 
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -42,6 +71,8 @@ class FloatingButtonService : Service() {
         handler.post(refreshRunnable)
     }
 
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
     private fun buildNotification(): Notification {
         val channelId = "soulbot_fg"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -49,11 +80,14 @@ class FloatingButtonService : Service() {
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
         val pi = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, channelId)
             .setContentTitle("SoulBot 运行中")
-            .setContentText("点悬浮按钮开始/停止")
+            .setContentText("悬浮窗可查看下一步操作与倒计时")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pi)
             .build()
@@ -63,121 +97,512 @@ class FloatingButtonService : Service() {
         WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else
-                WindowManager.LayoutParams.TYPE_PHONE,
+            } else {
+                WindowManager.LayoutParams.TYPE_PHONE
+            },
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
+            PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             this.x = x
             this.y = y
         }
 
+    private fun roundedShape(
+        color: Int,
+        radiusDp: Int,
+        strokeColor: Int? = null,
+    ): GradientDrawable = GradientDrawable().apply {
+        cornerRadius = dp(radiusDp).toFloat()
+        setColor(color)
+        strokeColor?.let { setStroke(dp(1), it) }
+    }
+
+    private fun roundedRipple(color: Int, radiusDp: Int): RippleDrawable {
+        val content = roundedShape(color, radiusDp)
+        val mask = roundedShape(Color.WHITE, radiusDp)
+        return RippleDrawable(
+            ColorStateList.valueOf(Color.parseColor("#33FFFFFF")),
+            content,
+            mask,
+        )
+    }
+
+    private fun dotDrawable(color: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(color)
+    }
+
     private fun showFloat() {
         if (floatView != null) return
-        val dm = resources.displayMetrics
-        val screenWidth = dm.widthPixels
-        val screenHeight = dm.heightPixels
 
-        val view = TextView(this).apply {
-            text = "开始"
-            setBackgroundColor(Color.parseColor("#CC6200EE"))
-            setTextColor(Color.WHITE)
-            setPadding(28, 18, 28, 18)
-            gravity = Gravity.CENTER
-            textSize = 14f
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            elevation = dp(10).toFloat()
+            background = roundedShape(
+                Color.parseColor("#F225262A"),
+                28,
+                Color.parseColor("#26FFFFFF"),
+            )
         }
 
-        // 默认在屏幕右侧、垂直居中
-        val lp = overlayParams(screenWidth - 180, screenHeight / 2)
+        val expanded = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
 
-        // 信息面板，在悬浮球左侧
-        val panel = TextView(this).apply {
-            setBackgroundColor(Color.parseColor("#CC000000"))
-            setTextColor(Color.WHITE)
-            setPadding(20, 12, 20, 12)
-            textSize = 12f
+        val statusArea = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(48)
+            setPadding(dp(8), 0, dp(8), 0)
+            contentDescription = "SoulBot 状态，可拖动悬浮窗"
+        }
+
+        val dot = View(this).apply {
+            background = dotDrawable(Color.parseColor("#8B5CF6"))
+        }
+        statusArea.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply {
+            marginEnd = dp(10)
+        })
+
+        val textColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumWidth = dp(120)
+        }
+        val statusTitle = TextView(this).apply {
             text = "已停止"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            includeFontPadding = false
+            maxLines = 1
         }
-        val panelLp = overlayParams(screenWidth - 420, screenHeight / 2 - 20)
+        val nextAction = TextView(this).apply {
+            text = "点击启动"
+            textSize = 11f
+            setTextColor(Color.parseColor("#C7C9D1"))
+            includeFontPadding = false
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = dp(160)
+            setPadding(0, dp(3), 0, 0)
+        }
+        textColumn.addView(statusTitle)
+        textColumn.addView(nextAction)
+        statusArea.addView(textColumn)
+        expanded.addView(statusArea)
 
+        val action = TextView(this).apply {
+            text = "启动"
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            minWidth = dp(88)
+            minHeight = dp(48)
+            setPadding(dp(14), 0, dp(14), 0)
+            compoundDrawablePadding = dp(8)
+            background = roundedRipple(Color.parseColor("#6D28D9"), 24)
+            contentDescription = "启动自动助手"
+            isClickable = true
+            isFocusable = true
+        }
+        expanded.addView(action, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            dp(48),
+        ).apply {
+            marginStart = dp(8)
+        })
+
+        val collapsed = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(9), 0, dp(9), 0)
+            background = roundedRipple(Color.TRANSPARENT, 28)
+            contentDescription = "展开 SoulBot 悬浮窗"
+            isClickable = true
+            isFocusable = true
+        }
+        val collapsedStateIcon = ImageView(this).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        collapsed.addView(collapsedStateIcon, LinearLayout.LayoutParams(dp(18), dp(18)))
+        val expandIcon = ImageView(this).apply {
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        collapsed.addView(expandIcon, LinearLayout.LayoutParams(dp(14), dp(18)).apply {
+            marginStart = dp(4)
+        })
+
+        root.addView(expanded)
+        root.addView(collapsed, LinearLayout.LayoutParams(dp(56), dp(56)))
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val lp = overlayParams(screenWidth - dp(80), screenHeight / 2 - dp(40))
+        windowManager.addView(root, lp)
+
+        floatView = root
+        windowParams = lp
+        expandedView = expanded
+        collapsedView = collapsed
+        statusTitleTv = statusTitle
+        nextActionTv = nextAction
+        actionTv = action
+        statusDot = dot
+        collapsedChevron = expandIcon
+        collapsedActionIcon = collapsedStateIcon
+
+        // Window overlays dispatch a tap to the deepest child under the finger.
+        // Bind the whole information cluster as a drag surface. A plain tap keeps
+        // the panel open and restarts its five-second edge timer.
+        listOf<View>(statusArea, dot, textColumn, statusTitle, nextAction).forEach { target ->
+            if (target !== statusArea) {
+                target.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            attachDragAndClick(target)
+        }
+        attachDragAndClick(action) { toggle() }
+        listOf<View>(collapsed, collapsedStateIcon, expandIcon).forEach { target ->
+            if (target !== collapsed) {
+                target.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            attachDragAndClick(target) { setCollapsed(false) }
+        }
+
+        root.post {
+            lp.y = (screenHeight / 2 - root.height / 2).coerceAtLeast(dp(32))
+            dockSide = DockSide.RIGHT
+            snapToEdge()
+            scheduleAutoCollapse()
+        }
+        updateStatusPanel()
+    }
+
+    private fun attachDragAndClick(view: View, onClick: (() -> Unit)? = null) {
         var initialX = 0
         var initialY = 0
-        var panelInitX = 0
-        var panelInitY = 0
         var touchX = 0f
         var touchY = 0f
         var moved = false
+        val movementThreshold = dp(6)
 
-        view.setOnTouchListener { _, event ->
-            when (event.action) {
+        if (onClick != null) {
+            view.setOnClickListener {
+                onClick()
+                if (!isCollapsed) scheduleAutoCollapse()
+            }
+        } else {
+            view.setOnClickListener(null)
+        }
+        view.setOnTouchListener { touchedView, event ->
+            val root = floatView ?: return@setOnTouchListener false
+            val lp = windowParams ?: return@setOnTouchListener false
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialX = lp.x; initialY = lp.y
-                    panelInitX = panelLp.x; panelInitY = panelLp.y
-                    touchX = event.rawX; touchY = event.rawY
+                    cancelAutoCollapse()
+                    initialX = lp.x
+                    initialY = lp.y
+                    touchX = event.rawX
+                    touchY = event.rawY
                     moved = false
                     true
                 }
+
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - touchX).toInt()
-                    val dy = (event.rawY - touchY).toInt()
-                    lp.x = initialX + dx; lp.y = initialY + dy
-                    panelLp.x = panelInitX + dx; panelLp.y = panelInitY + dy
-                    if (Math.abs(event.rawX - touchX) > 10 || Math.abs(event.rawY - touchY) > 10) moved = true
-                    windowManager.updateViewLayout(view, lp)
-                    windowManager.updateViewLayout(panel, panelLp)
+                    val dx = event.rawX - touchX
+                    val dy = event.rawY - touchY
+                    if (!moved && (abs(dx) >= movementThreshold || abs(dy) >= movementThreshold)) {
+                        moved = true
+                    }
+                    if (moved) {
+                        val screenWidth = resources.displayMetrics.widthPixels
+                        val screenHeight = resources.displayMetrics.heightPixels
+                        lp.x = (initialX + dx.toInt()).coerceIn(-root.width + dp(48), screenWidth - dp(48))
+                        lp.y = (initialY + dy.toInt()).coerceIn(
+                            dp(24),
+                            (screenHeight - root.height - dp(24)).coerceAtLeast(dp(24)),
+                        )
+                        windowManager.updateViewLayout(root, lp)
+                    }
                     true
                 }
+
                 MotionEvent.ACTION_UP -> {
-                    if (!moved) toggle()
+                    if (moved) {
+                        chooseNearestDockSide()
+                        snapToEdge()
+                        scheduleAutoCollapse()
+                    } else if (onClick != null) {
+                        touchedView.performClick()
+                    } else {
+                        scheduleAutoCollapse()
+                    }
                     true
                 }
+
+                MotionEvent.ACTION_CANCEL -> {
+                    if (moved) {
+                        chooseNearestDockSide()
+                        snapToEdge()
+                        scheduleAutoCollapse()
+                    } else if (!isCollapsed) {
+                        scheduleAutoCollapse()
+                    }
+                    true
+                }
+
                 else -> false
             }
         }
+    }
 
-        windowManager.addView(view, lp)
-        floatView = view
-        windowManager.addView(panel, panelLp)
-        statusPanel = panel
+    private fun chooseNearestDockSide() {
+        val root = floatView ?: return
+        val lp = windowParams ?: return
+        val centerX = lp.x + root.width / 2
+        dockSide = if (centerX < resources.displayMetrics.widthPixels / 2) {
+            DockSide.LEFT
+        } else {
+            DockSide.RIGHT
+        }
+    }
 
-        updateLabel()
+    private fun snapToEdge() {
+        val root = floatView ?: return
+        val lp = windowParams ?: return
+        if (root.width == 0) return
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        lp.x = when {
+            isCollapsed && dockSide == DockSide.LEFT -> -dp(8)
+            isCollapsed -> screenWidth - root.width + dp(8)
+            dockSide == DockSide.LEFT -> dp(8)
+            else -> screenWidth - root.width - dp(8)
+        }
+        lp.y = lp.y.coerceIn(
+            dp(24),
+            (screenHeight - root.height - dp(24)).coerceAtLeast(dp(24)),
+        )
+        updateChevronIcons()
+        try {
+            windowManager.updateViewLayout(root, lp)
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun scheduleAutoCollapse() {
+        handler.removeCallbacks(autoCollapseRunnable)
+        if (!isCollapsed) {
+            handler.postDelayed(autoCollapseRunnable, 5000)
+        }
+    }
+
+    private fun cancelAutoCollapse() {
+        handler.removeCallbacks(autoCollapseRunnable)
+    }
+
+    private fun setCollapsed(collapsed: Boolean) {
+        if (isCollapsed == collapsed) return
+        val root = floatView ?: return
+        cancelAutoCollapse()
+        android.util.Log.d("SoulBot", "悬浮窗折叠状态 -> $collapsed")
+        root.animate().cancel()
+        root.animate()
+            .alpha(0.65f)
+            .setDuration(80)
+            .withEndAction {
+                isCollapsed = collapsed
+                expandedView?.visibility = if (collapsed) View.GONE else View.VISIBLE
+                collapsedView?.visibility = if (collapsed) View.VISIBLE else View.GONE
+                root.requestLayout()
+                root.post {
+                    snapToEdge()
+                    root.animate().cancel()
+                    root.animate().alpha(1f).setDuration(120).start()
+                    if (!collapsed) scheduleAutoCollapse()
+                }
+            }
+            .start()
+    }
+
+    private fun updateChevronIcons() {
+        val expandDirection = if (dockSide == DockSide.LEFT) 1 else -1
+        collapsedChevron?.setImageDrawable(ChevronDrawable(expandDirection, dp(14)))
     }
 
     private fun toggle() {
-        val svc = SoulBotService.instance
-        if (svc == null) {
-            floatView?.text = "未开无障碍"
+        val service = SoulBotService.instance
+        if (service == null) {
+            updateStatusPanel()
             return
         }
         if (SoulBotService.running) {
-            svc.stop()
+            service.stop()
         } else {
-            svc.start()
+            service.start()
         }
-        updateLabel()
-    }
-
-    private fun updateLabel() {
-        floatView?.text = if (SoulBotService.running) "停止" else "开始"
+        updateStatusPanel()
     }
 
     private fun updateStatusPanel() {
-        val panel = statusPanel ?: return
-        val text = SoulBotService.statusText
+        val serviceAvailable = SoulBotService.instance != null
+        val running = SoulBotService.running
+        val rawStatus = SoulBotService.statusText
         val deadline = SoulBotService.statusDeadline
-        val remainSec = if (deadline > 0) (deadline - System.currentTimeMillis() + 500) / 1000 else -1
-        panel.text = if (remainSec >= 0) "$text\n还有 ${remainSec} 秒" else text
+        val now = System.currentTimeMillis()
+
+        statusTitleTv?.text = FloatingStatusFormatter.title(running, serviceAvailable, rawStatus)
+        nextActionTv?.text = FloatingStatusFormatter.detail(
+            running,
+            serviceAvailable,
+            rawStatus,
+            deadline,
+            now,
+        )
+
+        val activeColor = if (running) Color.parseColor("#22C55E") else Color.parseColor("#8B5CF6")
+        statusDot?.background = dotDrawable(activeColor)
+        collapsedView?.contentDescription =
+            "${FloatingStatusFormatter.title(running, serviceAvailable, rawStatus)}，点击展开悬浮窗"
+
+        if (lastRenderedRunning != running) {
+            actionTv?.apply {
+                text = if (running) "停止" else "启动"
+                contentDescription = if (running) "停止自动助手" else "启动自动助手"
+                background = roundedRipple(
+                    if (running) Color.parseColor("#B4232D") else Color.parseColor("#6D28D9"),
+                    24,
+                )
+                setCompoundDrawablesRelativeWithIntrinsicBounds(
+                    ActionIconDrawable(running, dp(18)),
+                    null,
+                    null,
+                    null,
+                )
+            }
+            collapsedActionIcon?.setImageDrawable(ActionIconDrawable(running, dp(18)))
+            lastRenderedRunning = running
+        }
+        updateChevronIcons()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(refreshRunnable)
-        floatView?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
-        statusPanel?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
+        handler.removeCallbacks(autoCollapseRunnable)
+        floatView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (_: Exception) {
+            }
+        }
         floatView = null
-        statusPanel = null
+        windowParams = null
+        expandedView = null
+        collapsedView = null
+        statusTitleTv = null
+        nextActionTv = null
+        actionTv = null
+        statusDot = null
+        collapsedChevron = null
+        collapsedActionIcon = null
         super.onDestroy()
+    }
+
+    private class ActionIconDrawable(
+        private val stop: Boolean,
+        private val sizePx: Int,
+    ) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+
+        override fun draw(canvas: Canvas) {
+            val cx = bounds.exactCenterX()
+            val cy = bounds.exactCenterY()
+            val radius = sizePx * 0.28f
+            if (stop) {
+                canvas.drawRoundRect(
+                    cx - radius,
+                    cy - radius,
+                    cx + radius,
+                    cy + radius,
+                    sizePx * 0.09f,
+                    sizePx * 0.09f,
+                    paint,
+                )
+            } else {
+                val path = Path().apply {
+                    moveTo(cx - radius * 0.72f, cy - radius)
+                    lineTo(cx + radius, cy)
+                    lineTo(cx - radius * 0.72f, cy + radius)
+                    close()
+                }
+                canvas.drawPath(path, paint)
+            }
+        }
+
+        override fun setAlpha(alpha: Int) {
+            paint.alpha = alpha
+        }
+
+        override fun setColorFilter(colorFilter: ColorFilter?) {
+            paint.colorFilter = colorFilter
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+        override fun getIntrinsicWidth(): Int = sizePx
+
+        override fun getIntrinsicHeight(): Int = sizePx
+    }
+
+    private class ChevronDrawable(
+        private val direction: Int,
+        private val sizePx: Int,
+    ) : Drawable() {
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.parseColor("#B8BBC4")
+            style = Paint.Style.STROKE
+            strokeWidth = sizePx * 0.12f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        override fun draw(canvas: Canvas) {
+            val cx = bounds.exactCenterX()
+            val cy = bounds.exactCenterY()
+            val horizontal = sizePx * 0.18f * direction
+            val vertical = sizePx * 0.25f
+            val path = Path().apply {
+                moveTo(cx - horizontal, cy - vertical)
+                lineTo(cx + horizontal, cy)
+                lineTo(cx - horizontal, cy + vertical)
+            }
+            canvas.drawPath(path, paint)
+        }
+
+        override fun setAlpha(alpha: Int) {
+            paint.alpha = alpha
+        }
+
+        override fun setColorFilter(colorFilter: ColorFilter?) {
+            paint.colorFilter = colorFilter
+        }
+
+        @Deprecated("Deprecated in Java")
+        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+        override fun getIntrinsicWidth(): Int = sizePx
+
+        override fun getIntrinsicHeight(): Int = sizePx
     }
 }

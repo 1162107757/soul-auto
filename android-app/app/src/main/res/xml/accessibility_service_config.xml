@@ -6,4 +6,5 @@
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_label"
-    android:notificationTimeout="100" />
+    android:notificationTimeout="100"
+    android:packageNames="cn.soulapp.android" />

@@ -99,6 +99,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnStart.setOnClickListener {
+            if (!isOverlayEnabled()) {
+                Toast.makeText(this, "请先授权悬浮窗权限", Toast.LENGTH_SHORT).show()
+                startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                )
+                return@setOnClickListener
+            }
             val intent = Intent(this, FloatingButtonService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)

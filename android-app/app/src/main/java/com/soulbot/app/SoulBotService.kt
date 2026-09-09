@@ -2,8 +2,11 @@ package com.soulbot.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -17,9 +20,12 @@ class SoulBotService : AccessibilityService() {
         @Volatile var statusText: String = "已停止"
         @Volatile var statusDeadline: Long = 0  // 下次动作的绝对时间戳（毫秒），0=无倒计时
 
+        const val SOUL_PACKAGE = "cn.soulapp.android"
         const val REPLY_CHAT = true
         const val DM_INTERVAL = 240L  // 广场私信间隔（秒）
         const val CONTEXT_LEN = 12
+        const val MAX_SCROLLS_TO_TOP = 20
+        const val SQUARE_RETRY_DELAY_MS = 3000L
 
         // Soul 控件 id
         const val ID_INPUT_BOX = "cn.soulapp.android:id/et_sendmessage"
@@ -39,6 +45,7 @@ class SoulBotService : AccessibilityService() {
         const val ID_SQUARE_TEXT = "cn.soulapp.android:id/square_item_text"
         const val ID_SQUARE_AVATAR = "cn.soulapp.android:id/flAvatar"
         const val ID_SQUARE_PAGER = "cn.soulapp.android:id/pager_square"
+        const val ID_SQUARE_CHANNEL_TAB = "cn.soulapp.android:id/tv_tab"
         const val ID_GIFT_CLOSE = "cn.soulapp.android:id/tv_btn_close"
         const val ID_CHAT_SECRET = "cn.soulapp.android:id/tv_chat_secret"
         const val ID_PROFILE_NAME = "cn.soulapp.android:id/titlebar_text_tv"
@@ -50,7 +57,7 @@ class SoulBotService : AccessibilityService() {
         const val ID_GREETING_TIPS = "cn.soulapp.android:id/tv_tips"
     }
 
-    private enum class Screen { CHAT, LIST, SQUARE, PROFILE, GIFT, GREETING_LIST, QIYU_POPUP, OTHER }
+    private enum class Screen { CHAT, LIST, SQUARE, PROFILE, GIFT, GREETING_LIST, QIYU_POPUP, OUTSIDE, OTHER }
 
     private class StoppedException : RuntimeException()
 
@@ -76,7 +83,7 @@ class SoulBotService : AccessibilityService() {
     }
 
     fun start() {
-        if (running) return
+        if (running || worker?.isAlive == true) return
         running = true
         android.util.Log.d("SoulBot", "start() called, launching runLoop thread")
         worker = Thread { runLoop() }.apply { start() }
@@ -87,12 +94,69 @@ class SoulBotService : AccessibilityService() {
         statusText = "已停止"
         statusDeadline = 0
         worker?.interrupt()
-        worker = null
+        // runLoop() clears the reference in finally. Keeping it until then prevents
+        // a second worker from starting while the interrupted one is still unwinding.
     }
 
     // ===== 基础辅助 =====
 
     private fun root(): AccessibilityNodeInfo? = rootInActiveWindow
+
+    private fun isSoulForeground(): Boolean =
+        root()?.packageName?.toString() == SOUL_PACKAGE
+
+    private fun screenWidth(): Int = resources.displayMetrics.widthPixels
+
+    private fun screenHeight(): Int = resources.displayMetrics.heightPixels
+
+    private fun swipeUp(startRatio: Float, endRatio: Float, duration: Long = 300) {
+        val x = screenWidth() / 2f
+        val height = screenHeight().toFloat()
+        swipe(x, height * startRatio, x, height * endRatio, duration)
+    }
+
+    private fun conversationListSnapshot(): String =
+        findByIds(ID_CONV_NAME)
+            .map { node -> rect(node).top to textOf(node) }
+            .sortedBy { it.first }
+            .joinToString("|") { (top, name) -> "$top:$name" }
+
+    private fun scrollConversationToTop() {
+        if (!isOnList()) return
+        setNextStep("回到会话顶部")
+
+        // RecyclerView exposes this action on supported Soul versions and can jump
+        // directly to the first row without depending on device height.
+        findById(ID_CONV_LIST)?.let { list ->
+            val args = Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_ROW_INT, 0)
+            }
+            list.performAction(
+                AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_TO_POSITION.id,
+                args,
+            )
+            sleep(500)
+        }
+
+        // Verify that the list is really at the beginning. Keep scrolling backward
+        // until the visible conversations stop changing, rather than assuming a
+        // fixed number of gestures is enough.
+        repeat(MAX_SCROLLS_TO_TOP) {
+            if (!isOnList()) return
+            val before = conversationListSnapshot()
+            val list = findById(ID_CONV_LIST)
+            val accepted = list?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) == true
+            if (!accepted) {
+                // Fallback for Soul versions whose list does not publish scroll actions.
+                val x = screenWidth() / 2f
+                val height = screenHeight().toFloat()
+                swipe(x, height * 0.30f, x, height * 0.86f, 450)
+            }
+            sleep(500)
+            val after = conversationListSnapshot()
+            if (before.isNotEmpty() && after == before) return
+        }
+    }
 
     private fun findById(id: String): AccessibilityNodeInfo? =
         root()?.findAccessibilityNodeInfosByViewId(id)?.firstOrNull()
@@ -112,6 +176,14 @@ class SoulBotService : AccessibilityService() {
         }
     }
 
+    private fun isVisibleOnScreen(node: AccessibilityNodeInfo): Boolean {
+        if (!node.isVisibleToUser) return false
+        val bounds = rect(node)
+        return bounds.width() > 0 && bounds.height() > 0 &&
+            bounds.right > 0 && bounds.bottom > 0 &&
+            bounds.left < screenWidth() && bounds.top < screenHeight()
+    }
+
     private fun rect(node: AccessibilityNodeInfo): Rect {
         val r = Rect()
         node.getBoundsInScreen(r)
@@ -121,19 +193,29 @@ class SoulBotService : AccessibilityService() {
     private fun textOf(node: AccessibilityNodeInfo?): String =
         node?.text?.toString()?.trim() ?: ""
 
-    private fun tap(x: Float, y: Float) {
+    private fun tap(x: Float, y: Float): Boolean {
         val cx = maxOf(0f, x)
         val cy = maxOf(0f, y)
         val path = Path().apply { moveTo(cx, cy) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
             .build()
-        dispatchGesture(gesture, null, null)
+        return dispatchGesture(gesture, null, null)
     }
 
-    private fun tapNode(node: AccessibilityNodeInfo) {
+    private fun tapNode(node: AccessibilityNodeInfo): Boolean {
+        // Prefer semantic accessibility clicks. Some Soul child views are not clickable,
+        // so walk up a few parents before falling back to a coordinate gesture.
+        var clickable: AccessibilityNodeInfo? = node
+        repeat(4) {
+            val candidate = clickable ?: return@repeat
+            if (candidate.isClickable && candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                return true
+            }
+            clickable = candidate.parent
+        }
         val r = rect(node)
-        tap(r.exactCenterX().toFloat(), r.exactCenterY().toFloat())
+        return tap(r.exactCenterX().toFloat(), r.exactCenterY().toFloat())
     }
 
     private fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, duration: Long = 300) {
@@ -148,21 +230,80 @@ class SoulBotService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_BACK)
     }
 
+    private fun setNextStep(action: String, delayMs: Long = 0L) {
+        statusText = action
+        statusDeadline = if (delayMs > 0L) System.currentTimeMillis() + delayMs else 0L
+    }
+
     private fun sleep(ms: Long) {
+        // Short UI waits also get a real countdown. A longer deadline that was
+        // explicitly reported by the workflow (for example the next square visit)
+        // always takes precedence over these internal waits.
+        val now = System.currentTimeMillis()
+        val ownsDeadline = running && statusDeadline <= now
+        if (ownsDeadline) statusDeadline = now + ms
         try {
             Thread.sleep(ms)
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             throw StoppedException()
+        } finally {
+            if (ownsDeadline) statusDeadline = 0
         }
     }
 
-    private fun setText(node: AccessibilityNodeInfo, text: String) {
+    private fun waitForInputText(expected: String, timeoutMs: Long = 1000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (textOf(findById(ID_INPUT_BOX)) == expected) return true
+            sleep(100)
+        }
+        return textOf(findById(ID_INPUT_BOX)) == expected
+    }
+
+    private fun setText(node: AccessibilityNodeInfo, text: String): Boolean {
+        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
         val args = Bundle()
         args.putCharSequence(
             AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text
         )
         node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        if (waitForInputText(text)) {
+            return true
+        }
+
+        // ACTION_SET_TEXT is unreliable in some Soul releases. Use the public
+        // accessibility paste action as a fallback and restore the user's clipboard.
+        val input = findById(ID_INPUT_BOX) ?: return false
+        tapNode(input)
+        input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val currentText = textOf(input)
+        val selection = Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, currentText.length)
+        }
+        input.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection)
+
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val oldClip = runCatching { clipboard.primaryClip }.getOrNull()
+        return try {
+            clipboard.setPrimaryClip(ClipData.newPlainText("SoulBot reply", text))
+            sleep(100)
+            input.performAction(AccessibilityNodeInfo.ACTION_PASTE) && waitForInputText(text)
+        } catch (e: Exception) {
+            android.util.Log.d("SoulBot", "文字注入失败: ${e.message}")
+            false
+        } finally {
+            try {
+                if (oldClip != null) {
+                    clipboard.setPrimaryClip(oldClip)
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    clipboard.clearPrimaryClip()
+                } else {
+                    clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     private fun contains(outer: Rect, inner: Rect): Boolean =
@@ -172,6 +313,7 @@ class SoulBotService : AccessibilityService() {
     // ===== 界面识别 =====
 
     private fun currentScreen(): Screen = when {
+        !isSoulForeground() -> Screen.OUTSIDE
         findVisibleById(ID_QIYU_CHAT) != null -> Screen.QIYU_POPUP
         findVisibleById(ID_GIFT_CLOSE) != null -> Screen.GIFT
         findVisibleById(ID_INPUT_BOX) != null -> Screen.CHAT
@@ -188,11 +330,40 @@ class SoulBotService : AccessibilityService() {
     private fun isOnProfile() = currentScreen() == Screen.PROFILE
     private fun isOnGift() = currentScreen() == Screen.GIFT
 
+    private fun selectedSquareChannel(): String =
+        findByIds(ID_SQUARE_CHANNEL_TAB)
+            .firstOrNull { it.isSelected && isVisibleOnScreen(it) }
+            ?.let(::textOf)
+            .orEmpty()
+
+    private fun ensureLocalSquareChannel(): String? {
+        if (!isOnSquare()) return null
+        val localTab = findByIds(ID_SQUARE_CHANNEL_TAB)
+            .filter(::isVisibleOnScreen)
+            .firstOrNull {
+                val title = textOf(it)
+                title.isNotEmpty() && title != "关注" && title != "推荐"
+            } ?: return null
+        val localTitle = textOf(localTab)
+        if (localTab.isSelected) return localTitle
+
+        setNextStep("切换到同城·$localTitle")
+        tapNode(localTab)
+        repeat(10) {
+            sleep(250)
+            if (selectedSquareChannel() == localTitle) return localTitle
+        }
+        android.util.Log.d("SoulBot", "同城频道切换失败: $localTitle")
+        return null
+    }
+
     // ===== 导航（都带验证） =====
 
     private fun returnToList(): Boolean {
+        setNextStep("返回会话列表")
         // 从任意界面返回聊天列表：二级界面按 back，广场点聊天 tab
         for (i in 0 until 4) {
+            if (!isSoulForeground()) return false
             if (isOnList()) return true
             if (isOnSquare()) return gotoChatList()
             pressBack(); sleep(1000)
@@ -201,22 +372,27 @@ class SoulBotService : AccessibilityService() {
     }
 
     private fun gotoSquare(): Boolean {
+        if (!isSoulForeground()) return false
+        setNextStep("打开同城广场")
         for (i in 0 until 3) {
             val tab = findById(ID_SQUARE_TAB)
             if (tab != null) {
                 tapNode(tab)
                 for (w in 0 until 8) {
-                    if (isOnSquare()) return true
+                    if (isOnSquare()) return ensureLocalSquareChannel() != null
                     sleep(800)
                 }
-                return isOnSquare()
+                return isOnSquare() && ensureLocalSquareChannel() != null
             }
+            if (!isSoulForeground()) return false
             pressBack(); sleep(1000)
         }
-        return isOnSquare()
+        return isOnSquare() && ensureLocalSquareChannel() != null
     }
 
     private fun gotoChatList(): Boolean {
+        if (!isSoulForeground()) return false
+        setNextStep("返回会话列表")
         for (i in 0 until 3) {
             val tab = findById(ID_MSG_TAB)
             if (tab != null) {
@@ -227,6 +403,7 @@ class SoulBotService : AccessibilityService() {
                 }
                 return isOnList()
             }
+            if (!isSoulForeground()) return false
             pressBack(); sleep(1000)
         }
         return isOnList()
@@ -234,10 +411,11 @@ class SoulBotService : AccessibilityService() {
 
     private fun backToSquare(): Boolean {
         for (i in 0 until 4) {
-            if (isOnSquare()) return true
+            if (!isSoulForeground()) return false
+            if (isOnSquare()) return ensureLocalSquareChannel() != null
             pressBack(); sleep(1000)
         }
-        return isOnSquare()
+        return isOnSquare() && ensureLocalSquareChannel() != null
     }
 
     // ===== 延时 =====
@@ -288,24 +466,50 @@ class SoulBotService : AccessibilityService() {
         if (!isOnChat()) return false
         val pieces = splitReply(text)
         for ((i, piece) in pieces.withIndex()) {
+            setNextStep("输入第 " + (i + 1) + " 段回复")
             val input = findById(ID_INPUT_BOX) ?: return false
             tapNode(input)
             sleep(300)
-            setText(input, piece)
+            if (!setText(input, piece)) {
+                statusText = "输入失败"
+                android.util.Log.d("SoulBot", "输入框文字注入失败")
+                return false
+            }
             sleep(500)
             // 等发送按钮出现再点，最多等 4 秒
             var sent = false
+            setNextStep("发送第 " + (i + 1) + " 段回复")
             for (wait in 0 until 8) {
-                val btn = findById(ID_SEND_BUTTON)
-                if (btn != null) {
-                    tapNode(btn)
+                if (textOf(findById(ID_INPUT_BOX)).isEmpty()) {
                     sent = true
                     break
                 }
+                val btn = findById(ID_SEND_BUTTON)
+                if (btn != null) {
+                    tapNode(btn)
+                    // A successful send clears the input. Verify the UI instead of
+                    // treating a dispatched gesture as a delivered message.
+                    for (verify in 0 until 6) {
+                        sleep(250)
+                        if (textOf(findById(ID_INPUT_BOX)).isEmpty()) {
+                            sent = true
+                            break
+                        }
+                    }
+                    if (sent) break
+                }
                 sleep(500)
             }
-            if (!sent) return false
-            if (i < pieces.size - 1) sleep(random.nextLong(2000, 5000))
+            if (!sent) {
+                statusText = "发送失败"
+                android.util.Log.d("SoulBot", "发送按钮点击后输入框未清空")
+                return false
+            }
+            if (i < pieces.size - 1) {
+                val nextPartDelay = random.nextLong(2000, 5000)
+                setNextStep("发送第 " + (i + 2) + " 段回复", nextPartDelay)
+                sleep(nextPartDelay)
+            }
         }
         return true
     }
@@ -328,7 +532,7 @@ class SoulBotService : AccessibilityService() {
             var role = "in"
             for (av in avatars) {
                 if (contains(ib, rect(av))) {
-                    role = if (rect(av).left > 540) "out" else "in"
+                    role = if (rect(av).centerX() > screenWidth() / 2) "out" else "in"
                     break
                 }
             }
@@ -405,13 +609,12 @@ class SoulBotService : AccessibilityService() {
         return ""
     }
 
-    private fun handleQiyu(seen: MutableSet<String>): Boolean {
+    private fun handleQiyu(): Boolean {
         if (currentScreen() != Screen.QIYU_POPUP) return false
         val signature = textOf(findById(ID_QIYU_SIGNATURE))
         val reason = textOf(findById(ID_QIYU_REASON))
         val chatBtn = findById(ID_QIYU_CHAT) ?: return false
-        statusText = "奇遇铃私聊"
-        statusDeadline = 0
+        setNextStep("打开奇遇铃私聊")
         tapNode(chatBtn)
         sleep(2500)
         if (!isOnChat()) {
@@ -420,34 +623,39 @@ class SoulBotService : AccessibilityService() {
         }
         val qiyuTag = readQiyuSignature()
         val reply = genQiyuReply(signature, reason, qiyuTag)
-        if (reply != null) {
-            send(reply)
+        val sent = reply != null && send(reply)
+        if (sent) {
             historyDb?.record(signature, "理由：$reason\n引力签：$qiyuTag", reply)
         }
         pressBack()
         sleep(1200)
-        return reply != null
+        return sent
     }
 
     // ===== 回复会话（仅会话列表起点） =====
 
-    private fun replyTo(name: String, seen: MutableSet<String>): Boolean {
+    private fun replyTo(name: String, seen: ConversationSeenTracker): Boolean {
         if (!isOnList()) return false
         val item = findConversation(name) ?: return false
+        setNextStep("打开 $name 的会话")
         tapNode(item)
         sleep(1500)
         if (!isOnChat()) { gotoChatList(); return false }
         val thread = readThread()
         val incoming = thread.filter { it.first == "in" }
         if (incoming.isEmpty()) { gotoChatList(); return false }
-        val new = incoming.filter { it.second !in seen }
+        val incomingTexts = incoming.map { it.second }
+        val new = seen.unseen(name, incomingTexts)
         if (new.isEmpty()) { gotoChatList(); return false }
-        incoming.forEach { seen.add(it.second) }
+        setNextStep("生成给 $name 的回复")
         val reply = genReply(thread) ?: run { gotoChatList(); return false }
-        send(reply)
-        historyDb?.record(name, incoming.last().second, reply)
+        val sent = send(reply)
+        if (sent) {
+            seen.markSeen(name, incomingTexts)
+            historyDb?.record(name, incoming.last().second, reply)
+        }
         gotoChatList()
-        return true
+        return sent
     }
 
     // ===== 收到的新招呼 =====
@@ -457,6 +665,7 @@ class SoulBotService : AccessibilityService() {
     private fun hasUnreadRedDot(): Boolean = findById(ID_MSG_RED_DOT) != null
 
     private fun openGreetingList(): Boolean {
+        setNextStep("打开新招呼列表")
         for (i in 0 until 2) {
             if (currentScreen() == Screen.GREETING_LIST) return true
             findById(ID_GREETING_TITLE)?.let { tapNode(it) }
@@ -470,33 +679,39 @@ class SoulBotService : AccessibilityService() {
         return findByIds(ID_CONV_NAME).map { textOf(it) }.filter { it.isNotEmpty() }
     }
 
-    private fun replyToGreeting(name: String, seen: MutableSet<String>): Boolean {
+    private fun replyToGreeting(name: String, seen: ConversationSeenTracker): Boolean {
         if (currentScreen() != Screen.GREETING_LIST) return false
         val nameNode = findByIds(ID_CONV_NAME).firstOrNull { textOf(it) == name } ?: return false
+        setNextStep("打开 $name 的招呼")
         tapNode(nameNode)
         sleep(1500)
         if (!isOnChat()) { pressBack(); sleep(1200); return false }
         val thread = readThread()
         val incoming = thread.filter { it.first == "in" }
         if (incoming.isEmpty()) { pressBack(); sleep(1200); return false }
-        val new = incoming.filter { it.second !in seen }
+        val incomingTexts = incoming.map { it.second }
+        val new = seen.unseen("招呼:$name", incomingTexts)
         if (new.isEmpty()) { pressBack(); sleep(1200); return false }
-        incoming.forEach { seen.add(it.second) }
+        setNextStep("生成给 $name 的回复")
         val reply = genReply(thread) ?: run { pressBack(); sleep(1200); return false }
-        send(reply)
-        historyDb?.record(name, incoming.last().second, reply)
+        val sent = send(reply)
+        if (sent) {
+            seen.markSeen("招呼:$name", incomingTexts)
+            historyDb?.record(name, incoming.last().second, reply)
+        }
         pressBack()
         sleep(1200)
-        return true
+        return sent
     }
 
     // ===== 广场 =====
 
-    private fun readPosts(): List<Pair<String, AccessibilityNodeInfo>> {
+    private fun readPosts(expectedChannel: String): List<Pair<String, AccessibilityNodeInfo>> {
         if (!isOnSquare()) return emptyList()
-        val cards = findByIds(ID_SQUARE_CARD)
-        val texts = findByIds(ID_SQUARE_TEXT)
-        val avatars = findByIds(ID_SQUARE_AVATAR)
+        if (selectedSquareChannel() != expectedChannel) return emptyList()
+        val cards = findByIds(ID_SQUARE_CARD).filter(::isVisibleOnScreen)
+        val texts = findByIds(ID_SQUARE_TEXT).filter(::isVisibleOnScreen)
+        val avatars = findByIds(ID_SQUARE_AVATAR).filter(::isVisibleOnScreen)
         val result = mutableListOf<Pair<String, AccessibilityNodeInfo>>()
         for (card in cards) {
             val cb = rect(card)
@@ -514,25 +729,59 @@ class SoulBotService : AccessibilityService() {
 
     private fun skipGift() {
         if (isOnGift()) {
+            setNextStep("关闭礼物弹窗")
             findById(ID_GIFT_CLOSE)?.let { tapNode(it) }
             sleep(1500)
         }
     }
 
+    private fun openProfile(avatar: AccessibilityNodeInfo): Boolean {
+        val bounds = rect(avatar)
+        setNextStep("打开同城用户主页")
+        for (attempt in 0 until 2) {
+            if (attempt == 0) {
+                tapNode(avatar)
+            } else {
+                android.util.Log.d("SoulBot", "点头像未进资料页，重试一次")
+                tap(bounds.exactCenterX().toFloat(), bounds.exactCenterY().toFloat())
+            }
+            for (wait in 0 until 8) {
+                sleep(250)
+                if (isOnProfile()) return true
+                if (!isSoulForeground()) return false
+            }
+            if (!isOnSquare()) return false
+        }
+        android.util.Log.d("SoulBot", "点头像仍失败，跳过")
+        return false
+    }
+
     private fun browseSquareOnce(seenDm: MutableSet<String>, greetDb: GreetDatabase): Boolean {
         if (!isOnSquare()) return false
+        val channel = ensureLocalSquareChannel() ?: run {
+            statusText = "未找到同城频道"
+            return false
+        }
+        setNextStep("浏览同城·$channel")
         for (screen in 0 until 6) {
-            val posts = readPosts()
+            if (selectedSquareChannel() != channel) {
+                android.util.Log.d(
+                    "SoulBot",
+                    "广场频道发生变化，停止本轮: $channel -> ${selectedSquareChannel()}",
+                )
+                return false
+            }
+            val posts = readPosts(channel)
             for ((text, avatar) in posts) {
                 if (text in seenDm) continue
+                if (selectedSquareChannel() != channel || !isVisibleOnScreen(avatar)) continue
                 seenDm.add(text)
-                tapNode(avatar)                 // 点头像进主页
-                sleep(2000)
-                if (!isOnProfile()) { backToSquare(); continue }
+                if (!openProfile(avatar)) { backToSquare(); continue }
                 val name = getProfileName()
                 if (name.isNotEmpty() && !greetDb.shouldGreet(name, text, Prefs.getGreetIntervalHours(applicationContext))) { backToSquare(); continue }
                 val secret = findById(ID_CHAT_SECRET)
                 if (secret == null) { backToSquare(); continue }
+                setNextStep("打开 $name 的私聊")
                 tapNode(secret)                 // 主页点私聊
                 sleep(2500)
                 when {
@@ -541,22 +790,24 @@ class SoulBotService : AccessibilityService() {
                         backToSquare()
                     }
                     isOnChat() -> {             // 免费进聊天
+                        setNextStep("生成给 $name 的开场白")
                         val reply = genDmReply(text)
-                        if (reply != null) {
-                            send(reply)
+                        val sent = reply != null && send(reply)
+                        if (sent) {
                             if (name.isNotEmpty()) {
                                 greetDb.recordGreet(name, text)
                                 historyDb?.record(name, text, reply)
                             }
                         }
                         backToSquare()
-                        return reply != null
+                        return sent
                     }
                     else -> backToSquare()
                 }
             }
             if (!isOnSquare()) break
-            swipe(540f, 1800f, 540f, 600f)      // 上滑翻更多
+            setNextStep("加载更多同城动态")
+            swipeUp(0.82f, 0.32f)               // 按当前屏幕尺寸上滑翻更多
             sleep(1500)
         }
         return false
@@ -565,6 +816,19 @@ class SoulBotService : AccessibilityService() {
     // ===== 主循环 =====
 
     private fun runLoop() {
+        try {
+            runLoopInternal()
+        } finally {
+            running = false
+            statusDeadline = 0
+            if (statusText != "未配置 API Key" && statusText != "模型配置不完整") {
+                statusText = "已停止"
+            }
+            if (worker === Thread.currentThread()) worker = null
+        }
+    }
+
+    private fun runLoopInternal() {
         val ctx = applicationContext
         val modelName = Prefs.getSelectedModel(ctx)
         var m = ModelList.findByName(modelName)
@@ -578,10 +842,14 @@ class SoulBotService : AccessibilityService() {
             statusDeadline = 0
             return
         }
-        statusText = "运行中"
-        statusDeadline = 0
+        if (currentModel.baseUrl.isBlank() || currentModel.model.isBlank()) {
+            statusText = "模型配置不完整"
+            statusDeadline = 0
+            return
+        }
+        setNextStep("检查当前页面")
 
-        val seen = mutableSetOf<String>()
+        val seen = ConversationSeenTracker()
         val seenDm = mutableSetOf<String>()
         val greetDb = GreetDatabase(applicationContext)
         historyDb = HistoryDatabase(applicationContext)
@@ -589,10 +857,12 @@ class SoulBotService : AccessibilityService() {
         var lastDm = 0L
         var lastScreenName = ""
         var stuckCount = 0
+        var unreadTopSearchComplete = false
 
         while (running) {
             try {
                 val screen = currentScreen()
+                if (screen != Screen.LIST) unreadTopSearchComplete = false
                 if (screen.name == lastScreenName) stuckCount++ else {
                     lastScreenName = screen.name
                     stuckCount = 0
@@ -601,17 +871,35 @@ class SoulBotService : AccessibilityService() {
                         "screen=${screen.name} pager=${findVisibleById(ID_SQUARE_PAGER) != null} avatar=${findVisibleById(ID_SQUARE_AVATAR) != null} name=${findVisibleById(ID_CONV_NAME) != null} input=${findVisibleById(ID_INPUT_BOX) != null}"
                     )
                 }
-                if (stuckCount > 8) { sleep(5000); stuckCount = 0; continue }
+                if (stuckCount > 8) {
+                    setNextStep("重新检测当前页面", 5000)
+                    sleep(5000)
+                    stuckCount = 0
+                    continue
+                }
 
                 if (!REPLY_CHAT) {
                     // 测试模式：只刷广场
                     when (screen) {
-                        Screen.CHAT, Screen.GIFT, Screen.PROFILE -> { pressBack(); sleep(1200) }
+                        Screen.CHAT, Screen.GIFT, Screen.PROFILE -> {
+                            setNextStep("返回同城广场")
+                            pressBack()
+                            sleep(1200)
+                        }
                         Screen.SQUARE -> {
                             if (System.currentTimeMillis() - lastDm >= squareInterval * 1000L) {
-                                browseSquareOnce(seenDm, greetDb)
-                                lastDm = System.currentTimeMillis()
-                            } else sleep(3000)
+                                val sent = browseSquareOnce(seenDm, greetDb)
+                                if (sent) {
+                                    lastDm = System.currentTimeMillis()
+                                } else {
+                                    android.util.Log.d("SoulBot", "本轮广场未成功私聊，不进入冷却")
+                                    setNextStep("继续寻找可私聊用户", SQUARE_RETRY_DELAY_MS)
+                                    sleep(SQUARE_RETRY_DELAY_MS)
+                                }
+                            } else {
+                                setNextStep("检查广场私信时间", 3000)
+                                sleep(3000)
+                            }
                         }
                         else -> gotoSquare()
                     }
@@ -621,45 +909,54 @@ class SoulBotService : AccessibilityService() {
                 // 正常模式：优先回未读，空闲刷广场
                 when (screen) {
                     Screen.QIYU_POPUP -> {
-                        handleQiyu(seen)
+                        handleQiyu()
                     }
                     Screen.LIST -> {
                         if (hasGreeting()) {
-                            statusText = "处理新招呼"
-                            statusDeadline = 0
+                            setNextStep("处理新招呼")
                             openGreetingList()
                         } else if (hasUnreadRedDot()) {
                             val unread = scanUnread()
                             if (unread.isNotEmpty()) {
+                                unreadTopSearchComplete = false
                                 val (name, timeStr) = unread[0]
                                 val delay = replyDelay(timeStr)
                                 if (delay > 0) {
-                                    statusText = "回复 $name（思考中）"
-                                    statusDeadline = System.currentTimeMillis() + delay
+                                    setNextStep("回复 $name", delay)
                                     sleep(delay)
                                 }
-                                statusText = "回复 $name"
-                                statusDeadline = 0
+                                setNextStep("回复 $name")
                                 replyTo(name, seen)
+                            } else if (!unreadTopSearchComplete) {
+                                setNextStep("回到会话顶部")
+                                scrollConversationToTop()
+                                unreadTopSearchComplete = true
+                                setNextStep("重新检查未读消息", 800)
+                                sleep(800)
                             } else {
-                                statusText = "往下找未读"
-                                statusDeadline = 0
-                                swipe(540f, 1900f, 540f, 1000f, 500)
-                                sleep(1500)
+                                setNextStep("重新检查未读消息", 3000)
+                                sleep(3000)
                             }
                         } else {
+                            unreadTopSearchComplete = false
                             val remainMs = squareInterval * 1000L - (System.currentTimeMillis() - lastDm)
                             if (remainMs <= 0) {
-                                statusText = "刷广场私信"
-                                statusDeadline = 0
-                                lastDm = System.currentTimeMillis()
+                                setNextStep("进入同城广场并私信")
+                                var sent = false
                                 if (gotoSquare()) {
-                                    browseSquareOnce(seenDm, greetDb)
+                                    sent = browseSquareOnce(seenDm, greetDb)
+                                    if (sent) {
+                                        lastDm = System.currentTimeMillis()
+                                    }
                                     gotoChatList()
                                 }
+                                if (!sent) {
+                                    android.util.Log.d("SoulBot", "本轮广场未成功私聊，不进入冷却")
+                                    setNextStep("继续寻找可私聊用户", SQUARE_RETRY_DELAY_MS)
+                                    sleep(SQUARE_RETRY_DELAY_MS)
+                                }
                             } else {
-                                statusText = "空闲等待"
-                                statusDeadline = System.currentTimeMillis() + remainMs
+                                setNextStep("进入同城广场并私信", remainMs)
                                 sleep(3000)
                             }
                         }
@@ -667,14 +964,17 @@ class SoulBotService : AccessibilityService() {
                     Screen.GREETING_LIST -> {
                         val users = scanGreetingUsers()
                         if (users.isNotEmpty()) {
-                            statusText = "回招呼 ${users[0]}"
-                            statusDeadline = 0
+                            setNextStep("回复招呼 " + users[0])
                             replyToGreeting(users[0], seen)
                         } else {
-                            statusText = "返回列表"
-                            statusDeadline = 0
-                            pressBack(); sleep(1200)
+                            setNextStep("返回会话列表")
+                            pressBack()
+                            sleep(1200)
                         }
+                    }
+                    Screen.OUTSIDE -> {
+                        setNextStep("检查 Soul 是否已打开", 1500)
+                        sleep(1500)
                     }
                     else -> returnToList()
                 }
@@ -682,6 +982,7 @@ class SoulBotService : AccessibilityService() {
                 break
             } catch (e: Exception) {
                 android.util.Log.d("SoulBot", "异常: ${e.message}")
+                setNextStep("异常后重试", 2000)
                 sleep(2000)
             }
         }
