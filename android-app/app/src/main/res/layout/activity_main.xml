@@ -1,0 +1,249 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="① 选择模型"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+
+        <Spinner
+            android:id="@+id/spModel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="48dp" />
+
+        <EditText
+            android:id="@+id/etBaseUrl"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="中转站地址，如 https://xxx.com/v1"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:visibility="gone"
+            android:importantForAutofill="no" />
+
+        <EditText
+            android:id="@+id/etModel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="模型名，如 gpt-4o"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:visibility="gone"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="② 该模型的 API Key"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+
+        <EditText
+            android:id="@+id/etApiKey"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:hint="粘贴该模型的 key"
+            android:inputType="textPassword"
+            android:minHeight="56dp"
+            android:padding="12dp"
+            android:textSize="16sp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:importantForAutofill="no" />
+
+        <CheckBox
+            android:id="@+id/cbShowKey"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="显示明文"
+            android:textColor="#000000" />
+
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="保存 Key" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="③ 权限状态"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textSize="15sp"
+            android:textColor="#000000"
+            android:lineSpacingExtra="4dp" />
+
+        <Button
+            android:id="@+id/btnAccessibility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="开启无障碍服务" />
+
+        <Button
+            android:id="@+id/btnOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="开启悬浮窗权限" />
+
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="启动悬浮按钮" />
+
+        <Button
+            android:id="@+id/btnHistory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="查看互动记录" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="④ 时间间隔设置"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="1. 广场私信间隔"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+        <EditText
+            android:id="@+id/etSquareInterval"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="秒，默认 240"
+            android:inputType="number"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:importantForAutofill="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="含义：聊天没未读时，每隔这么久去广场刷一次私信（私信一个人）"
+            android:textSize="12sp"
+            android:textColor="#666666" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="2. 回复延迟范围"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+        <EditText
+            android:id="@+id/etThinkMin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="最小秒数，默认 5"
+            android:inputType="number"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:importantForAutofill="no" />
+        <EditText
+            android:id="@+id/etThinkMax"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="最大秒数，默认 15"
+            android:inputType="number"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:importantForAutofill="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="含义：收到对方消息后，在这个范围内随机等一个时间再回复（模拟真人思考，避免秒回）"
+            android:textSize="12sp"
+            android:textColor="#666666" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="3. 打招呼去重间隔"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="#000000" />
+        <EditText
+            android:id="@+id/etGreetHours"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="小时，默认 24"
+            android:inputType="number"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:background="#FFF3E0"
+            android:textColor="#000000"
+            android:importantForAutofill="no" />
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="含义：给同一个人发过招呼后，如果 TA 发了新帖子，要隔这么久才再次打招呼（内容没变则永远不再打）"
+            android:textSize="12sp"
+            android:textColor="#666666" />
+
+        <Button
+            android:id="@+id/btnSaveTime"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="保存时间设置" />
+
+    </LinearLayout>
+</ScrollView>

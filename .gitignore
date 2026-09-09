@@ -1,0 +1,30 @@
+# ===== 环境配置（含真实 key）=====
+.env
+
+# ===== Python =====
+__pycache__/
+*.pyc
+
+# ===== 调试临时文件 =====
+app_screen.png
+app_screen2.png
+chat_check.txt
+greeting_chat.txt
+greeting_list.txt
+qiyu.txt
+qiyu_after.txt
+hierarchy.xml
+*.png
+
+# ===== Android 构建产物 =====
+android-app/.gradle/
+android-app/.kotlin/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+*.apk
+*.aab
+
+# ===== IDE =====
+.idea/
+*.iml

@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.SoulBot" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryDark">@color/purple_700</item>
+        <item name="colorAccent">@color/purple_500</item>
+    </style>
+</resources>

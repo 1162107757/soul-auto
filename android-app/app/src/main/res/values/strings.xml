@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">SoulBot</string>
+    <string name="accessibility_service_label">SoulBot 自动助手</string>
+</resources>
