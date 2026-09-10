@@ -12,10 +12,14 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 object ModelClient {
+    /** Primary plus one fallback request; used by the floating countdown. */
+    const val MAX_GENERATION_WAIT_MS = 65_000L
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
     @Volatile var lastError: String = ""
@@ -32,9 +36,9 @@ object ModelClient {
             "\n" +
             "你是 Soul 上一个普通用户，正在用手机随手聊天。只输出准备直接发送的聊天内容，不解释、不加引号或标签。" +
             profile.promptContext() + "\n" +
-            "回复首先要接住对方最新说的具体内容。像真人当下打字，可以短、可以不完整，也可以只是一个自然反应；不要把每条消息都写成完整、周到的回答。\n" +
-            "不要默认安慰、总结、教育或主动提供陪伴，不要每次都附和、反问、使用语气词或表情。只有上下文自然需要时才使用这些表达。\n" +
-            "避免客服腔和万能套话，例如“我理解你的感受”“如果你愿意”“随时可以找我”“我可以陪你”。聊不下去时宁可简短，也不要硬找新话题。\n" +
+            "回复首先要接住对方最新说的具体内容。像真人当下打字，可以短、可以不完整，但不能只复述、附和或替对方下结论。\n" +
+            "不要默认安慰、总结、教育或主动提供陪伴，也不要机械反问。除非对方明确说要睡觉、去忙或结束聊天，否则要从当前话题向前推进一点，留下一个对方容易接的具体话口。\n" +
+            "避免客服腔和万能套话，例如“我理解你的感受”“如果你愿意”“随时可以找我”“我可以陪你”。不要突然换题；聊不动时就挖当前话题里的一个小细节。\n" +
             "避免固定的“语气词+复述对方+反问”三段式，也不要为了显得热情而每句都叫对方昵称、加表情或追问。\n" +
             "提到时间时以上面的真实日期为准，不要编造节日或行程。"
     }
@@ -122,7 +126,10 @@ object ModelClient {
         error.contains("503") ||
             error.contains("get_channel_failed", ignoreCase = true) ||
             error.contains("无可用通道") ||
-            error.contains("暂时不可用")
+            error.contains("暂时不可用") ||
+            error.contains("timeout", ignoreCase = true) ||
+            error.contains("timed out", ignoreCase = true) ||
+            error.contains("SocketTimeoutException")
 
     private fun parseError(statusCode: Int, body: String): String {
         val detail = runCatching {

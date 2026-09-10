@@ -6,6 +6,12 @@ object SoulMatchContent {
         "Ta的引力签",
         "Ta的认证",
         "Ta的星座",
+        "Ta的礼仪分",
+        "Ta仁爱星球",
+        "你们的共同点",
+        "Ta的共同点",
+        "匹配度",
+        "查看主页",
     )
 
     fun gravityTags(titleTexts: List<String>): String = titleTexts
@@ -20,6 +26,21 @@ object SoulMatchContent {
             text.isNotEmpty() && metadataPrefixes.none(text::startsWith)
         }
         .orEmpty()
+
+    fun zodiac(titleTexts: List<String>): String = titleTexts
+        .map(String::trim)
+        .firstOrNull { it.startsWith("Ta的星座") }
+        ?.substringAfterLabel()
+        .orEmpty()
+
+    /** Best available material for an opener, in descending order of specificity. */
+    fun openingBasis(name: String, gravityTags: String, zodiac: String): String = when {
+        gravityTags.isNotBlank() -> "引力签：$gravityTags"
+        name.isNotBlank() && zodiac.isNotBlank() -> "昵称：$name；星座：$zodiac"
+        zodiac.isNotBlank() -> "星座：$zodiac"
+        name.isNotBlank() -> "昵称：$name"
+        else -> ""
+    }
 
     fun sessionKey(name: String, gravityTags: String): String =
         comparableText(name) + "\u0000" + comparableText(gravityTags)

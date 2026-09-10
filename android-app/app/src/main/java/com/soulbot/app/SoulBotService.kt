@@ -422,10 +422,28 @@ class SoulBotService : AccessibilityService() {
             .map(::textOf)
             .filter(String::isNotBlank)
 
+    private fun visibleTextsContaining(query: String): List<String> = runCatching {
+        root()?.findAccessibilityNodeInfosByText(query)
+            ?.filter(::isVisibleOnScreen)
+            ?.map(::textOf)
+            ?.filter(String::isNotBlank)
+            ?: emptyList()
+    }.getOrDefault(emptyList())
+
+    private fun soulMatchProfileTexts(): List<String> = buildList {
+        // The conversation name and metadata use different ids in different Soul builds.
+        displayedConversationName().takeIf(String::isNotBlank)?.let(::add)
+        addAll(visibleTitleTexts())
+        addAll(visibleTextsContaining("Ta的引力签"))
+        addAll(visibleTextsContaining("Ta的星座"))
+    }.distinct()
+
     private fun isSoulMatchChatSurface(): Boolean =
         findVisibleById(ID_INPUT_BOX) != null &&
             (findVisibleById(ID_SOUL_MATCH_PERCENT) != null ||
-                visibleTitleTexts().any { it.startsWith("Ta的引力签") })
+                visibleTitleTexts().any {
+                    it.startsWith("Ta的引力签") || it.startsWith("Ta的星座")
+                })
 
     private fun isSoulPlanetSurface(): Boolean =
         findVisibleById(ID_INPUT_BOX) == null &&
@@ -606,9 +624,11 @@ class SoulBotService : AccessibilityService() {
                 return false
             }
             val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0L) break
             setNextStep("等待灵魂匹配完成", remaining)
             sleep(minOf(1000L, remaining))
         }
+        if (!running) return false
         setNextStep("灵魂匹配等待超时，本轮跳过")
         return false
     }
@@ -638,7 +658,9 @@ class SoulBotService : AccessibilityService() {
                 handleQiyu()
                 return false
             }
-            sleep(minOf(250L, deadline - System.currentTimeMillis()))
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0L) break
+            sleep(minOf(250L, remaining))
         }
         return running
     }
@@ -670,11 +692,9 @@ class SoulBotService : AccessibilityService() {
     // ===== 拆分回复 =====
 
     private fun splitReply(text: String): List<String> {
-        val t = text.trim()
-        // 按换行和句子结束符拆分，两条合一句的能分开
-        val parts = t.split(Regex("""(?<=[。！？!?…~])|\n+"""))
-            .map { it.trim() }.filter { it.isNotEmpty() }
-        return if (parts.size <= 1) listOf(t) else parts.take(3)
+        // Model formatting must not turn one thought into three incomplete bubbles.
+        val singleBubble = text.trim().replace(Regex("""\s*\n+\s*"""), " ")
+        return listOf(singleBubble)
     }
 
     // ===== 发送（仅聊天界面） =====
@@ -1053,9 +1073,9 @@ class SoulBotService : AccessibilityService() {
                 "\n用于判断话题的最近对话：\n${contextAnalysis.supportingTranscript}"
         }
         if (ConversationReplyContext.needsEngagingHook(latest)) {
-            systemPrompt += "\n对方本轮在向你提问：先直接、真实地回答，再顺手抛出一个紧贴当前话题的具体小问题作为引子。" +
-                "这个问题要像真实聊天里自然带出来的，最好有细节或画面感，让对方容易接话；" +
-                "不要只说“你呢”“然后呢”“你怎么样”，也不要突然换题或连续盘问。"
+            systemPrompt += "\n这轮回复不能停在附和、复述或结论上。先接住对方刚说的具体点，再只抛一个紧贴当前话题、低压力而且容易回答的小问题作为引子。" +
+                "优先从具体细节、二选一、当时场景或轻微猜测中选一种，例如问‘是味道太冲还是有股怪味’，而不是泛泛问候。" +
+                "不要只说“你呢”“然后呢”“你怎么样”“平时干嘛”“今天上班没”，不要突然换题或连续盘问。"
         }
         return ModelClient.chat(
             currentApiKey,
@@ -1066,17 +1086,34 @@ class SoulBotService : AccessibilityService() {
         )
     }
 
-    private fun genDmReply(contactName: String, postText: String): String? {
-        val sys = baseSystemPrompt() +
+    private fun genDmReply(
+        contactName: String,
+        postText: String,
+        rejectedReplies: List<String> = emptyList(),
+    ): String? {
+        var sys = baseSystemPrompt() +
             " 现在要根据对方发的一条广场动态，写一句自然的私聊开场白，能接上这条动态。" +
+            "开场白必须包含一个紧贴动态具体内容、对方很容易回答的小问题，不能只评价或复述动态。" +
             personalizationContext(contactName, postText)
+        if (rejectedReplies.isNotEmpty()) {
+            sys += " 以下候选已被拒绝，禁止重复：${rejectedReplies.joinToString("｜")}"
+        }
         return ModelClient.chat(currentApiKey, currentModel.baseUrl, currentModel.model, sys, listOf("user" to "对方发的广场动态：$postText\n写一句自然、口语化、简短的私聊开场白。"))
     }
 
-    private fun genQiyuReply(signature: String, reason: String, qiyuTag: String): String? {
-        val sys = baseSystemPrompt() +
+    private fun genQiyuReply(
+        signature: String,
+        reason: String,
+        qiyuTag: String,
+        rejectedReplies: List<String> = emptyList(),
+    ): String? {
+        var sys = baseSystemPrompt() +
             " 现在对方通过奇遇铃匹配了你，要根据Ta的签名和引力签写一句自然的破冰开场白。" +
+            "必须带一个紧贴签名、引力签或匹配理由的具体小问题，让对方容易接话。" +
             personalizationContext(signature, "$reason\n$qiyuTag")
+        if (rejectedReplies.isNotEmpty()) {
+            sys += " 以下候选已被拒绝，禁止重复：${rejectedReplies.joinToString("｜")}"
+        }
         val userMsg = "对方签名：$signature\n匹配理由：$reason\n引力签：$qiyuTag\n" +
             "写一句自然、口语化、简短的破冰开场白，能接上对方的引力签或匹配理由。"
         return ModelClient.chat(currentApiKey, currentModel.baseUrl, currentModel.model, sys, listOf("user" to userMsg))
@@ -1085,17 +1122,21 @@ class SoulBotService : AccessibilityService() {
     private fun genSoulMatchReply(
         contactName: String,
         gravityTags: String,
+        zodiac: String,
         rejectedReplies: List<String> = emptyList(),
     ): String? {
+        val basis = SoulMatchContent.openingBasis(contactName, gravityTags, zodiac)
         var sys = baseSystemPrompt() +
-            " 你刚通过灵魂匹配进入聊天。必须从对方的引力签里挑一个具体点自然接话，" +
-            "不要逐项复述标签，不要自我介绍，不要使用通用问候或客服式套话，只输出一句简短口语。" +
-            personalizationContext(contactName, gravityTags)
+            " 你刚通过灵魂匹配进入聊天。根据当前能看到的资料写一句有真人感的开场白，并带一个紧贴资料、对方容易回答的小问题。" +
+            "有引力签时优先聊引力签；没有引力签时自然地从昵称和星座中选一个切入，二者都可用时可以轻巧组合。" +
+            "聊星座只能当作轻松话题，不能武断分析性格；聊昵称不要生硬解释字面意思。" +
+            "不要自我介绍、通用问候、客服式套话或‘感觉你很特别’这类空话，只输出一句简短口语。" +
+            personalizationContext(contactName, basis)
         if (rejectedReplies.isNotEmpty()) {
             sys += " 以下候选已被拒绝，禁止重复：${rejectedReplies.joinToString("｜")}"
         }
-        val userMsg = "对方昵称：$contactName\nTa的引力签：$gravityTags\n" +
-            "根据其中一个具体标签写一句自然、简短、像真人刚匹配时会发的开场白。"
+        val userMsg = "当前可用资料：$basis\n" +
+            "根据资料写一句自然、简短、像真人刚匹配时会发的开场白；必须给对方一个容易回答的具体话口。"
         return ModelClient.chat(
             currentApiKey,
             currentModel.baseUrl,
@@ -1103,6 +1144,93 @@ class SoulBotService : AccessibilityService() {
             sys,
             listOf("user" to userMsg),
         )
+    }
+
+    private fun generateValidatedChatReply(
+        contactName: String,
+        thread: List<Pair<String, String>>,
+        focusIncoming: List<String>,
+    ): String? {
+        val requireTopicContinuation = focusIncoming.lastOrNull()
+            ?.let(ConversationReplyContext::isLowInformation) == true
+        val requireEngagingHook = ConversationReplyContext.needsEngagingHook(focusIncoming)
+        val rejected = mutableListOf<String>()
+        var totalAttempts = 0
+        var modelFailures = 0
+
+        while (running && isOnChat() && totalAttempts < 6 && modelFailures < 2) {
+            totalAttempts++
+            setNextStep(
+                "根据 $contactName 的最新消息生成回复（第 $totalAttempts 次）",
+                ModelClient.MAX_GENERATION_WAIT_MS,
+            )
+            val rawCandidate = genReply(contactName, thread, focusIncoming, rejected)
+            if (!running) throw StoppedException()
+            val candidate = rawCandidate?.let(ReplyNaturalness::sanitize)
+            if (candidate.isNullOrBlank()) {
+                modelFailures++
+                if (modelFailures < 2) {
+                    val retryDelay = 3000L
+                    val reason = ModelClient.lastError.ifBlank { "模型未返回文字" }.take(36)
+                    setNextStep("生成失败：$reason，换通道后再试一次", retryDelay)
+                    sleep(retryDelay)
+                }
+                continue
+            }
+
+            val issue = ReplyNaturalness.rejectionReason(
+                candidate,
+                requireTopicContinuation = requireTopicContinuation,
+                requireEngagingHook = requireEngagingHook,
+            )
+            if (issue != null) {
+                rejected += candidate
+                if (totalAttempts < 6) {
+                    setNextStep("$issue，重新生成", 1000)
+                    sleep(1000)
+                }
+                continue
+            }
+            return candidate
+        }
+        return null
+    }
+
+    private fun generateValidatedOpening(
+        action: String,
+        generator: (List<String>) -> String?,
+    ): String? {
+        val rejected = mutableListOf<String>()
+        var totalAttempts = 0
+        var modelFailures = 0
+        while (running && isOnChat() && totalAttempts < 5 && modelFailures < 2) {
+            totalAttempts++
+            setNextStep("$action（第 $totalAttempts 次）", ModelClient.MAX_GENERATION_WAIT_MS)
+            val candidate = generator(rejected)?.let(ReplyNaturalness::sanitize)
+            if (!running) throw StoppedException()
+            if (candidate.isNullOrBlank()) {
+                modelFailures++
+                if (modelFailures < 2) {
+                    setNextStep("开场白生成失败，换通道后再试一次", 3000)
+                    sleep(3000)
+                }
+                continue
+            }
+            val issue = ReplyNaturalness.rejectionReason(
+                candidate,
+                requireEngagingHook = true,
+            )
+            if (issue != null) {
+                rejected += candidate
+                if (totalAttempts < 5) {
+                    setNextStep("$issue，重新生成开场白", 1000)
+                    sleep(1000)
+                }
+                continue
+            }
+            return candidate
+        }
+        return null
     }
 
     private fun personalizationContext(contactName: String, latestMessage: String): String {
@@ -1168,41 +1296,43 @@ class SoulBotService : AccessibilityService() {
     ): Boolean {
         if (currentScreen() != Screen.SOUL_MATCH_CHAT) return false
 
-        var titleTexts = visibleTitleTexts()
+        var titleTexts = soulMatchProfileTexts()
         var gravityTags = SoulMatchContent.gravityTags(titleTexts)
+        var zodiac = SoulMatchContent.zodiac(titleTexts)
         var contactName = SoulMatchContent.displayName(titleTexts)
-        repeat(10) {
-            if (gravityTags.isNotBlank() && contactName.isNotBlank()) return@repeat
-            setNextStep("读取Ta的引力签", (10L - it) * 500L)
+        for (attempt in 0 until 10) {
+            if (contactName.isNotBlank() &&
+                (gravityTags.isNotBlank() || zodiac.isNotBlank())
+            ) break
+            setNextStep("读取匹配资料（引力签、昵称或星座）", (10L - attempt) * 500L)
             sleep(500)
-            titleTexts = visibleTitleTexts()
+            titleTexts = soulMatchProfileTexts()
             gravityTags = SoulMatchContent.gravityTags(titleTexts)
+            zodiac = SoulMatchContent.zodiac(titleTexts)
             contactName = SoulMatchContent.displayName(titleTexts)
         }
-        if (contactName.isBlank()) contactName = "灵魂匹配对象"
 
         setNextStep("检查匹配聊天是否已有新消息", MESSAGE_SETTLE_MS)
         if (!waitUnlessQiyu(MESSAGE_SETTLE_MS)) return false
         convertIncomingVoiceMessages()
         val thread = readThread()
+        val openingBasis = SoulMatchContent.openingBasis(contactName, gravityTags, zodiac)
+        if (contactName.isBlank()) contactName = "灵魂匹配对象"
         learnFromManualReplies(contactName, thread)
         val incomingTexts = thread.filter { it.first == "in" }.map { it.second }
         val newIncoming = seen.unseen(contactName, incomingTexts)
         val replyingToMessage = newIncoming.isNotEmpty()
-        val requireTopicContinuation = newIncoming.lastOrNull()
-            ?.let(ConversationReplyContext::isLowInformation) == true
-
-        if (gravityTags.isBlank() && !replyingToMessage) {
-            android.util.Log.d("SoulBot", "灵魂匹配聊天未读取到引力签: $titleTexts")
-            setNextStep("未读取到Ta的引力签，停留当前聊天重试", 5000)
+        if (openingBasis.isBlank() && !replyingToMessage) {
+            RuntimeLog.record(applicationContext, "soul-match profile has no usable opener fields")
+            setNextStep("未读取到昵称、星座或引力签，稍后重试", 5000)
             sleep(5000)
             return false
         }
 
-        val matchKey = SoulMatchContent.sessionKey(contactName, gravityTags)
+        val matchKey = SoulMatchContent.sessionKey(contactName, openingBasis)
         val persistentName = "灵魂匹配:$contactName"
         if (!replyingToMessage &&
-            (matchKey in handledMatches || !greetDb.shouldGreet(persistentName, gravityTags))
+            (matchKey in handledMatches || !greetDb.shouldGreet(persistentName, openingBasis))
         ) {
             android.util.Log.d("SoulBot", "该灵魂匹配已有发送记录，返回星球页")
             setNextStep("该灵魂匹配已处理，返回星球页", 1200)
@@ -1211,43 +1341,23 @@ class SoulBotService : AccessibilityService() {
             return false
         }
 
-        val rejected = mutableListOf<String>()
-        var reply: String? = null
-        repeat(3) { attempt ->
-            if (!running || !isOnChat() || reply != null) return@repeat
-            setNextStep(
-                if (replyingToMessage) "根据 $contactName 的最新消息生成回复"
-                else "根据 $contactName 的引力签生成开场白",
-            )
-            val candidate = (if (replyingToMessage) {
-                genReply(contactName, thread, newIncoming, rejected)
-            } else {
-                genSoulMatchReply(contactName, gravityTags, rejected)
-            })
-                ?.let(ReplyNaturalness::sanitize)
-            val issue = candidate?.let {
-                ReplyNaturalness.rejectionReason(it, requireTopicContinuation)
-            }
-            if (candidate.isNullOrBlank() || issue != null) {
-                if (!candidate.isNullOrBlank()) rejected += candidate
-                val delay = 1000L * (attempt + 1)
-                setNextStep("开场白生成不合格，准备第 ${attempt + 2} 次生成", delay)
-                if (attempt < 2) sleep(delay)
-            } else {
-                reply = candidate
+        val finalReply = if (replyingToMessage) {
+            generateValidatedChatReply(contactName, thread, newIncoming)
+        } else {
+            generateValidatedOpening("根据 $contactName 的匹配资料生成开场白") { rejected ->
+                genSoulMatchReply(contactName, gravityTags, zodiac, rejected)
             }
         }
-
-        val finalReply = reply
         if (finalReply == null) {
-            android.util.Log.d("SoulBot", "灵魂匹配开场白连续三次生成失败")
-            setNextStep("开场白生成失败，停留当前聊天后重试", 15_000)
-            sleep(15_000)
+            RuntimeLog.record(applicationContext, "soul-match reply generation exhausted")
+            setNextStep("匹配回复生成失败，返回星球避免卡住", 2000)
+            sleep(2000)
+            gotoSoulPlanet()
             return false
         }
 
         val delay = thinkDelay()
-        setNextStep("准备向 $contactName 发送引力签开场白", delay)
+        setNextStep("准备向 $contactName 发送匹配开场白", delay)
         if (!waitUnlessQiyu(delay)) return false
         if (!running) return false
         if (!isOnChat()) {
@@ -1263,13 +1373,13 @@ class SoulBotService : AccessibilityService() {
         val sent = send(finalReply)
         if (sent) {
             handledMatches += matchKey
-            greetDb.recordGreet(persistentName, gravityTags)
+            greetDb.recordGreet(persistentName, openingBasis)
             if (replyingToMessage) seen.markSeen(contactName, incomingTexts)
-            val contextMessages = if (replyingToMessage) newIncoming else listOf("引力签：$gravityTags")
+            val contextMessages = if (replyingToMessage) newIncoming else listOf(openingBasis)
             val historyContext = if (replyingToMessage) {
                 newIncoming.last()
             } else {
-                "灵魂匹配引力签：$gravityTags"
+                "灵魂匹配资料：$openingBasis"
             }
             recordAutomatedInteraction(contactName, contextMessages, finalReply)
             historyDb?.record(contactName, historyContext, finalReply)
@@ -1281,23 +1391,30 @@ class SoulBotService : AccessibilityService() {
     }
 
     private fun handlePlanetChatIdle(
-        soulMatchAttempted: Boolean,
         handledMatches: MutableSet<String>,
         greetDb: GreetDatabase,
         seen: ConversationSeenTracker,
-    ): Boolean {
-        if (soulMatchAttempted) {
-            if (!isSoulPlanetSurface() && !gotoSoulPlanet()) return true
-            setNextStep("停留星球，等待新的聊天消息", 5000)
-            sleep(5000)
-            return true
+    ) {
+        if (!isSoulPlanetSurface() && !gotoSoulPlanet()) return
+        if (hasUnreadRedDot()) {
+            setNextStep("发现新的聊天消息，优先处理")
+            gotoChatList()
+            return
         }
+
+        setNextStep("没有新的聊天消息，立即开始下一次灵魂匹配")
         if (gotoSoulPlanet() && startSoulMatch()) {
             handleSoulMatchChat(handledMatches, greetDb, seen)
         } else if (running) {
-            if (hasUnreadRedDot()) gotoChatList() else gotoSoulPlanet()
+            if (hasUnreadRedDot()) {
+                gotoChatList()
+            } else if (isSoulPlanetSurface()) {
+                setNextStep("本次匹配未完成，短暂检查后继续匹配", 1500)
+                sleep(1500)
+            } else {
+                gotoSoulPlanet()
+            }
         }
-        return true
     }
 
     private fun handleQiyu(): Boolean {
@@ -1315,29 +1432,13 @@ class SoulBotService : AccessibilityService() {
             return false
         }
         val qiyuTag = readQiyuSignature()
-        val rejected = mutableListOf<String>()
-        var reply: String? = null
-        repeat(3) { attempt ->
-            if (!running || !isOnChat() || reply != null) return@repeat
-            setNextStep("优先生成奇遇铃私聊回复")
-            val candidate = genQiyuReply(signature, reason, qiyuTag)
-                ?.let(ReplyNaturalness::sanitize)
-            val issue = candidate?.let(ReplyNaturalness::rejectionReason)
-            if (candidate.isNullOrBlank() || issue != null) {
-                if (!candidate.isNullOrBlank()) rejected += candidate
-                if (attempt < 2) {
-                    val delay = 1000L * (attempt + 1)
-                    setNextStep("奇遇铃回复生成不合格，准备重试", delay)
-                    sleep(delay)
-                }
-            } else {
-                reply = candidate
-            }
+        val finalReply = generateValidatedOpening("优先生成奇遇铃私聊回复") { rejected ->
+            genQiyuReply(signature, reason, qiyuTag, rejected)
         }
-        val finalReply = reply
         if (finalReply == null) {
-            setNextStep("奇遇铃回复生成失败，停留当前聊天后重试", 15_000)
-            sleep(15_000)
+            setNextStep("奇遇铃回复生成失败，本轮结束避免卡住", 2000)
+            sleep(2000)
+            gotoChatList()
             return false
         }
         setNextStep("立即发送奇遇铃私聊回复")
@@ -1434,52 +1535,26 @@ class SoulBotService : AccessibilityService() {
                 return false
             }
 
-            val rejected = mutableListOf<String>()
-            var reply: String? = null
-            var modelFailureCount = 0
-            var naturalnessRejectCount = 0
-            val requireTopicContinuation = new.lastOrNull()
-                ?.let(ConversationReplyContext::isLowInformation) == true
-            val requireEngagingHook = ConversationReplyContext.needsEngagingHook(new)
-            while (running && isOnChat() && reply.isNullOrBlank()) {
-                setNextStep("根据 $name 的最新消息生成回复")
-                val rawCandidate = genReply(name, thread, new, rejected)
-                val candidate = rawCandidate?.let(ReplyNaturalness::sanitize)
-                if (candidate.isNullOrBlank()) {
-                    modelFailureCount++
-                    val retryDelay = (5000L * (1L shl minOf(modelFailureCount - 1, 3)))
-                        .coerceAtMost(60_000L)
-                    val reason = ModelClient.lastError.ifBlank { "模型未返回文字" }.take(36)
-                    setNextStep("生成失败：$reason，重新生成", retryDelay)
-                    sleep(retryDelay)
-                    continue
-                }
-                val naturalnessIssue = ReplyNaturalness.rejectionReason(
-                    candidate,
-                    requireTopicContinuation = requireTopicContinuation,
-                    requireEngagingHook = requireEngagingHook,
-                )
-                if (naturalnessIssue != null && naturalnessRejectCount < 3) {
-                    naturalnessRejectCount++
-                    rejected.add(candidate)
-                    setNextStep("$naturalnessIssue，重新生成", 1000)
-                    sleep(1000)
-                    continue
-                }
-                val normalized = normalizeReply(candidate)
+            val reply = generateValidatedChatReply(name, thread, new)
+            if (reply.isNullOrBlank()) {
+                val reason = ModelClient.lastError.ifBlank { "连续生成内容不合格" }.take(36)
+                setNextStep("本轮回复失败：$reason，返回列表避免卡住", 2000)
+                sleep(2000)
+                gotoChatList()
+                return false
+            }
+            run {
+                val normalized = normalizeReply(reply)
                 val repeated = thread.filter { it.first == "out" }
                     .map { normalizeReply(it.second) }
                     .any { it.isNotEmpty() && it == normalized }
                 if (repeated) {
-                    rejected.add(candidate)
-                    setNextStep("回复内容重复，重新生成", 1000)
-                    sleep(1000)
-                    continue
+                    setNextStep("回复内容与历史重复，本轮不发送并返回列表", 1500)
+                    sleep(1500)
+                    gotoChatList()
+                    return false
                 }
-                reply = candidate
             }
-
-            if (reply.isNullOrBlank()) return false
 
             // 模型生成期间对方可能又发了文字或语音。此时废弃旧回复，重新等待并生成。
             val newestThread = readThread()
@@ -1559,13 +1634,12 @@ class SoulBotService : AccessibilityService() {
             else { pressBack(); sleep(1200) }
             return false
         }
-        setNextStep("生成给 $name 的回复")
-        val reply = genReply(name, thread, new)?.let(ReplyNaturalness::sanitize)
-            ?: run {
-                if (currentScreen() == Screen.QIYU_POPUP) handleQiyu()
-                else { pressBack(); sleep(1200) }
-                return false
-            }
+        val reply = generateValidatedChatReply(name, thread, new) ?: run {
+            setNextStep("招呼回复生成失败，返回列表避免卡住", 1200)
+            if (currentScreen() == Screen.QIYU_POPUP) handleQiyu()
+            else { pressBack(); sleep(1200) }
+            return false
+        }
         if (currentScreen() == Screen.QIYU_POPUP) {
             handleQiyu()
             return false
@@ -1812,8 +1886,9 @@ class SoulBotService : AccessibilityService() {
                     if (!backToSquare()) return false
                 }
                 isOnChat() -> {
-                    setNextStep("生成给 $name 的开场白")
-                    val reply = genDmReply(name, text)?.let(ReplyNaturalness::sanitize)
+                    val reply = generateValidatedOpening("生成给 $name 的广场开场白") { rejected ->
+                        genDmReply(name, text, rejected)
+                    }
                     val sent = reply != null && send(reply)
                     if (sent) {
                         seenDm += postKey
@@ -1927,13 +2002,11 @@ class SoulBotService : AccessibilityService() {
         var lastScreenName = ""
         var stuckCount = 0
         var unreadTopSearchComplete = false
-        var soulMatchAttempted = false
         val handledSoulMatches = mutableSetOf<String>()
 
         fun handleIdleWork() {
             if (automationMode.handlesSoulMatch) {
-                soulMatchAttempted = handlePlanetChatIdle(
-                    soulMatchAttempted,
+                handlePlanetChatIdle(
                     handledSoulMatches,
                     greetDb,
                     seen,
@@ -2019,7 +2092,6 @@ class SoulBotService : AccessibilityService() {
                     Screen.QIYU_POPUP -> handleQiyu()
                     Screen.SOUL_MATCH_CHAT -> {
                         if (automationMode.handlesSoulMatch) {
-                            soulMatchAttempted = true
                             handleSoulMatchChat(handledSoulMatches, greetDb, seen)
                         } else {
                             gotoSquare()
@@ -2027,8 +2099,7 @@ class SoulBotService : AccessibilityService() {
                     }
                     Screen.SOUL_PLANET -> {
                         if (automationMode.handlesSoulMatch) {
-                            soulMatchAttempted = handlePlanetChatIdle(
-                                soulMatchAttempted,
+                            handlePlanetChatIdle(
                                 handledSoulMatches,
                                 greetDb,
                                 seen,

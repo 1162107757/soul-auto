@@ -158,6 +158,13 @@ object ReplyNaturalness {
         "很高兴认识你",
     )
 
+    private val flatClosers = listOf(
+        "哈哈确实", "确实是", "确实不想", "听着就挺", "这种还好", "那就行",
+        "那挺好", "基本没瘾了", "先睡够再说", "早点休息就好",
+    )
+
+    private val allowedTrailingLatin = setOf("ok", "lol", "emo", "ktv", "soul", "citywalk")
+
     fun sanitize(raw: String): String = raw.trim()
         .removePrefix("回复：")
         .removePrefix("回复:")
@@ -170,6 +177,8 @@ object ReplyNaturalness {
         requireEngagingHook: Boolean = false,
     ): String? {
         val clean = text.trim()
+        val trailingLatin = Regex("""([A-Za-z]{2,})$""").find(clean)
+            ?.groupValues?.getOrNull(1)?.lowercase()
         val genericContinuation = setOf(
             "怎么了", "怎么啦", "然后呢", "还有呢", "那你呢", "真的吗", "是吗",
             "哦", "嗯", "嗯嗯", "好的", "行吧", "哈哈", "哈哈哈",
@@ -178,6 +187,10 @@ object ReplyNaturalness {
             clean.isEmpty() -> "内容为空"
             clean.length > 100 -> "内容太长"
             artificialPhrases.any(clean::contains) -> "包含明显的 AI 套话"
+            trailingLatin != null && trailingLatin !in allowedTrailingLatin ->
+                "结尾包含疑似模型残片"
+            requireEngagingHook && flatClosers.any(clean::contains) ->
+                "回复只是在附和或替对方下结论"
             requireTopicContinuation &&
                 (ConversationReplyContext.isLowInformation(clean) ||
                     comparableText(clean) in genericContinuation) ->

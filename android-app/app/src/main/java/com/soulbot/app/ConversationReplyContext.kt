@@ -12,13 +12,18 @@ object ConversationReplyContext {
         "哦", "哦哦", "噢", "噢噢", "嗯", "嗯嗯", "恩", "恩恩", "嗯哼",
         "对", "对的", "对对", "是", "是的", "是啊", "也是", "没错", "确实",
         "好", "好的", "好吧", "行", "行吧", "可以", "知道了", "收到",
+        "没啦", "没呢", "没有啦", "是的哇", "嗯呐", "嗯呐嗯呐",
         "啊", "啊啊", "额", "呃", "哈哈", "哈哈哈", "哈哈哈哈", "嘿嘿", "呵呵",
         "ok", "okay", "yes", "[表情]", "[图片]",
     )
+
+    private val fillerOnly = Regex("""^(?:嗯|恩|哦|噢|啊|呐|呢|哇|哈|嘿|是的|对的|好的)+$""")
+
     fun isLowInformation(text: String): Boolean {
         val normalized = text.lowercase()
             .replace(Regex("""[\s，。！？!?、,.~～…·]+"""), "")
-        return normalized in exactFillers
+        return normalized in exactFillers ||
+            (normalized.length <= 10 && fillerOnly.matches(normalized))
     }
 
     private val questionClues = listOf(
@@ -29,19 +34,36 @@ object ConversationReplyContext {
 
     private val genericHookEndings = listOf(
         "你呢", "那你呢", "你怎么样", "你咋样", "然后呢", "还有呢", "怎么说",
+        "你平时干嘛", "你在干嘛", "今天上班吗", "今天上班没", "吃饭了吗",
+        "睡了吗", "在吗", "最近怎么样", "平时做什么",
     ).map(::comparableText)
+
+    private val closingClues = listOf(
+        "晚安", "睡觉了", "先睡了", "准备睡了", "我要睡了", "先忙了", "去忙了",
+        "开会去了", "先不聊了", "不聊了", "下次聊", "回头聊", "拜拜", "再见",
+    )
 
     fun asksQuestion(text: String): Boolean {
         val clean = text.trim()
         if (clean.isEmpty()) return false
         if ('?' in clean || '？' in clean) return true
         val comparable = comparableText(clean)
-        return questionClues.any { clue -> comparable.contains(comparableText(clue)) } ||
-            comparable.endsWith("呢")
+        return questionClues.any { clue -> comparable.contains(comparableText(clue)) }
     }
 
-    fun needsEngagingHook(focusIncoming: List<String>): Boolean =
-        focusIncoming.takeLast(2).any(::asksQuestion)
+    fun isConversationClosing(text: String): Boolean {
+        val comparable = comparableText(text)
+        return closingClues.any { comparable.contains(comparableText(it)) }
+    }
+
+    /**
+     * Normal chat turns should leave the other person an easy place to continue.
+     * The only exception is an explicit goodbye/busy/sleep boundary.
+     */
+    fun needsEngagingHook(focusIncoming: List<String>): Boolean {
+        val latest = focusIncoming.lastOrNull(String::isNotBlank) ?: return false
+        return !isConversationClosing(latest)
+    }
 
     fun hasEngagingHook(reply: String): Boolean {
         if (!asksQuestion(reply)) return false

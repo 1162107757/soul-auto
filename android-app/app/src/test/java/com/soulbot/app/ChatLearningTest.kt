@@ -85,4 +85,44 @@ class ChatLearningTest {
             ),
         )
     }
+
+    @Test
+    fun rejectsFlatRepliesSeenInRealConversations() {
+        assertEquals(
+            "回复只是在附和或替对方下结论",
+            ReplyNaturalness.rejectionReason(
+                "这天气确实不想出门",
+                requireEngagingHook = true,
+            ),
+        )
+        assertEquals(
+            "回复只是在附和或替对方下结论",
+            ReplyNaturalness.rejectionReason(
+                "这种还好，基本没瘾了",
+                requireEngagingHook = true,
+            ),
+        )
+        assertEquals(
+            "回答后缺少自然的话题引子",
+            ReplyNaturalness.rejectionReason(
+                "酒要先有点酸味后有点甜的好喝",
+                requireEngagingHook = true,
+            ),
+        )
+        assertEquals(
+            null,
+            ReplyNaturalness.rejectionReason(
+                "怎么个不好喝法，是味道太冲还是有股怪味？",
+                requireEngagingHook = true,
+            ),
+        )
+    }
+
+    @Test
+    fun rejectsLikelyModelGarbageAtTheEnd() {
+        assertEquals(
+            "结尾包含疑似模型残片",
+            ReplyNaturalness.rejectionReason("每天都差不多ele"),
+        )
+    }
 }
