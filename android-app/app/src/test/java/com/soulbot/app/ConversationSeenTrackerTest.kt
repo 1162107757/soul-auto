@@ -22,4 +22,23 @@ class ConversationSeenTrackerTest {
         assertTrue(tracker.unseen("小明", listOf("你好")).isEmpty())
         assertEquals(listOf("在吗"), tracker.unseen("小明", listOf("你好", "在吗")))
     }
+
+    @Test
+    fun `same text sent again is still a new occurrence`() {
+        val tracker = ConversationSeenTracker()
+        tracker.markSeen("小明", listOf("你好"))
+
+        assertEquals(listOf("你好"), tracker.unseen("小明", listOf("你好", "你好")))
+    }
+
+    @Test
+    fun `scrolled visible window keeps suffix overlap`() {
+        val tracker = ConversationSeenTracker()
+        tracker.markSeen("小明", listOf("第一条", "第二条"))
+
+        assertEquals(
+            listOf("第三条"),
+            tracker.unseen("小明", listOf("第二条", "第三条")),
+        )
+    }
 }

@@ -44,14 +44,14 @@ class FloatingButtonService : Service() {
     private var nextActionTv: TextView? = null
     private var actionTv: TextView? = null
     private var statusDot: View? = null
-    private var collapsedChevron: ImageView? = null
     private var collapsedActionIcon: ImageView? = null
     private var isCollapsed = false
+    private var isDockedToEdge = true
     private var dockSide = DockSide.RIGHT
     private var lastRenderedRunning: Boolean? = null
     private val handler = Handler(Looper.getMainLooper())
     private val autoCollapseRunnable = Runnable {
-        if (!isCollapsed) setCollapsed(true)
+        if (!isCollapsed && isDockedToEdge) setCollapsed(true)
     }
 
     private val refreshRunnable = object : Runnable {
@@ -63,12 +63,17 @@ class FloatingButtonService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         startForeground(1, buildNotification())
         showFloat()
         handler.post(refreshRunnable)
+        if (Prefs.getTaskShouldRun(applicationContext)) {
+            SoulBotService.instance?.start()
+        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -223,7 +228,7 @@ class FloatingButtonService : Service() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             visibility = View.GONE
-            setPadding(dp(9), 0, dp(9), 0)
+            setPadding(dp(12), 0, dp(12), 0)
             background = roundedRipple(Color.TRANSPARENT, 28)
             contentDescription = "展开 SoulBot 悬浮窗"
             isClickable = true
@@ -232,13 +237,7 @@ class FloatingButtonService : Service() {
         val collapsedStateIcon = ImageView(this).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        collapsed.addView(collapsedStateIcon, LinearLayout.LayoutParams(dp(18), dp(18)))
-        val expandIcon = ImageView(this).apply {
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        collapsed.addView(expandIcon, LinearLayout.LayoutParams(dp(14), dp(18)).apply {
-            marginStart = dp(4)
-        })
+        collapsed.addView(collapsedStateIcon, LinearLayout.LayoutParams(dp(20), dp(20)))
 
         root.addView(expanded)
         root.addView(collapsed, LinearLayout.LayoutParams(dp(56), dp(56)))
@@ -256,7 +255,6 @@ class FloatingButtonService : Service() {
         nextActionTv = nextAction
         actionTv = action
         statusDot = dot
-        collapsedChevron = expandIcon
         collapsedActionIcon = collapsedStateIcon
 
         // Window overlays dispatch a tap to the deepest child under the finger.
@@ -269,7 +267,7 @@ class FloatingButtonService : Service() {
             attachDragAndClick(target)
         }
         attachDragAndClick(action) { toggle() }
-        listOf<View>(collapsed, collapsedStateIcon, expandIcon).forEach { target ->
+        listOf<View>(collapsed, collapsedStateIcon).forEach { target ->
             if (target !== collapsed) {
                 target.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
@@ -279,6 +277,7 @@ class FloatingButtonService : Service() {
         root.post {
             lp.y = (screenHeight / 2 - root.height / 2).coerceAtLeast(dp(32))
             dockSide = DockSide.RIGHT
+            isDockedToEdge = true
             snapToEdge()
             scheduleAutoCollapse()
         }
@@ -336,9 +335,7 @@ class FloatingButtonService : Service() {
 
                 MotionEvent.ACTION_UP -> {
                     if (moved) {
-                        chooseNearestDockSide()
-                        snapToEdge()
-                        scheduleAutoCollapse()
+                        finishDrag()
                     } else if (onClick != null) {
                         touchedView.performClick()
                     } else {
@@ -349,9 +346,7 @@ class FloatingButtonService : Service() {
 
                 MotionEvent.ACTION_CANCEL -> {
                     if (moved) {
-                        chooseNearestDockSide()
-                        snapToEdge()
-                        scheduleAutoCollapse()
+                        finishDrag()
                     } else if (!isCollapsed) {
                         scheduleAutoCollapse()
                     }
@@ -363,14 +358,64 @@ class FloatingButtonService : Service() {
         }
     }
 
-    private fun chooseNearestDockSide() {
+    private fun finishDrag() {
         val root = floatView ?: return
         val lp = windowParams ?: return
-        val centerX = lp.x + root.width / 2
-        dockSide = if (centerX < resources.displayMetrics.widthPixels / 2) {
-            DockSide.LEFT
-        } else {
-            DockSide.RIGHT
+        if (root.width == 0) return
+
+        val screenWidth = resources.displayMetrics.widthPixels
+        val edgeSlop = dp(8)
+        val leftGap = lp.x
+        val rightGap = screenWidth - (lp.x + root.width)
+
+        when {
+            leftGap <= edgeSlop -> {
+                dockSide = DockSide.LEFT
+                isDockedToEdge = true
+                snapToEdge()
+                scheduleAutoCollapse()
+            }
+
+            rightGap <= edgeSlop -> {
+                dockSide = DockSide.RIGHT
+                isDockedToEdge = true
+                snapToEdge()
+                scheduleAutoCollapse()
+            }
+
+            else -> {
+                isDockedToEdge = false
+                cancelAutoCollapse()
+                if (isCollapsed) {
+                    // A collapsed handle dragged away from the edge becomes a
+                    // normal panel at the exact place where the user left it.
+                    setCollapsed(false)
+                } else {
+                    clampFreePosition()
+                }
+            }
+        }
+    }
+
+    private fun clampFreePosition() {
+        val root = floatView ?: return
+        val lp = windowParams ?: return
+        if (root.width == 0) return
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val horizontalPadding = dp(8)
+        val verticalPadding = dp(24)
+        lp.x = lp.x.coerceIn(
+            horizontalPadding,
+            (screenWidth - root.width - horizontalPadding).coerceAtLeast(horizontalPadding),
+        )
+        lp.y = lp.y.coerceIn(
+            verticalPadding,
+            (screenHeight - root.height - verticalPadding).coerceAtLeast(verticalPadding),
+        )
+        try {
+            windowManager.updateViewLayout(root, lp)
+        } catch (_: Exception) {
         }
     }
 
@@ -390,7 +435,6 @@ class FloatingButtonService : Service() {
             dp(24),
             (screenHeight - root.height - dp(24)).coerceAtLeast(dp(24)),
         )
-        updateChevronIcons()
         try {
             windowManager.updateViewLayout(root, lp)
         } catch (_: Exception) {
@@ -399,7 +443,7 @@ class FloatingButtonService : Service() {
 
     private fun scheduleAutoCollapse() {
         handler.removeCallbacks(autoCollapseRunnable)
-        if (!isCollapsed) {
+        if (!isCollapsed && isDockedToEdge) {
             handler.postDelayed(autoCollapseRunnable, 5000)
         }
     }
@@ -423,18 +467,17 @@ class FloatingButtonService : Service() {
                 collapsedView?.visibility = if (collapsed) View.VISIBLE else View.GONE
                 root.requestLayout()
                 root.post {
-                    snapToEdge()
+                    if (isDockedToEdge) {
+                        snapToEdge()
+                    } else {
+                        clampFreePosition()
+                    }
                     root.animate().cancel()
                     root.animate().alpha(1f).setDuration(120).start()
                     if (!collapsed) scheduleAutoCollapse()
                 }
             }
             .start()
-    }
-
-    private fun updateChevronIcons() {
-        val expandDirection = if (dockSide == DockSide.LEFT) 1 else -1
-        collapsedChevron?.setImageDrawable(ChevronDrawable(expandDirection, dp(14)))
     }
 
     private fun toggle() {
@@ -490,7 +533,6 @@ class FloatingButtonService : Service() {
             collapsedActionIcon?.setImageDrawable(ActionIconDrawable(running, dp(18)))
             lastRenderedRunning = running
         }
-        updateChevronIcons()
     }
 
     override fun onDestroy() {
@@ -510,7 +552,6 @@ class FloatingButtonService : Service() {
         nextActionTv = null
         actionTv = null
         statusDot = null
-        collapsedChevron = null
         collapsedActionIcon = null
         super.onDestroy()
     }
@@ -565,44 +606,4 @@ class FloatingButtonService : Service() {
         override fun getIntrinsicHeight(): Int = sizePx
     }
 
-    private class ChevronDrawable(
-        private val direction: Int,
-        private val sizePx: Int,
-    ) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#B8BBC4")
-            style = Paint.Style.STROKE
-            strokeWidth = sizePx * 0.12f
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-
-        override fun draw(canvas: Canvas) {
-            val cx = bounds.exactCenterX()
-            val cy = bounds.exactCenterY()
-            val horizontal = sizePx * 0.18f * direction
-            val vertical = sizePx * 0.25f
-            val path = Path().apply {
-                moveTo(cx - horizontal, cy - vertical)
-                lineTo(cx + horizontal, cy)
-                lineTo(cx - horizontal, cy + vertical)
-            }
-            canvas.drawPath(path, paint)
-        }
-
-        override fun setAlpha(alpha: Int) {
-            paint.alpha = alpha
-        }
-
-        override fun setColorFilter(colorFilter: ColorFilter?) {
-            paint.colorFilter = colorFilter
-        }
-
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
-
-        override fun getIntrinsicWidth(): Int = sizePx
-
-        override fun getIntrinsicHeight(): Int = sizePx
-    }
 }

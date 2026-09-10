@@ -13,7 +13,16 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="12dp"
+            android:text="@string/main_title"
+            android:textColor="#16131D"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
             android:text="① 选择模型"
             android:textSize="18sp"
             android:textStyle="bold"
@@ -140,7 +149,54 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="28dp"
-            android:text="④ 时间间隔设置"
+            android:text="④ 工作模式"
+            android:textColor="#000000"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="两个模式都优先处理奇遇铃和聊天消息，仅主动找人的方式互斥。切换后重新启动自动化生效。"
+            android:textColor="#555555"
+            android:textSize="13sp" />
+
+        <RadioGroup
+            android:id="@+id/rgAutomationMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/rbPlanetChat"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="64dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="8dp"
+                android:text="星球与聊天&#10;奇遇铃优先，其次回复聊天；空闲时进行灵魂匹配，不进入广场"
+                android:textColor="#000000"
+                android:textSize="15sp" />
+
+            <RadioButton
+                android:id="@+id/rbSquareDm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="64dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="8dp"
+                android:text="广场与私聊&#10;奇遇铃优先，其次回复聊天；空闲时刷同城广场私聊，不做灵魂匹配"
+                android:textColor="#000000"
+                android:textSize="15sp" />
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="⑤ 时间间隔设置"
             android:textSize="18sp"
             android:textStyle="bold"
             android:textColor="#000000" />
@@ -168,7 +224,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="含义：聊天没未读时，每隔这么久去广场刷一次私信（私信一个人）"
+            android:text="仅“广场与私聊”模式的主动私聊生效：每隔这么久尝试一次；未成功发送不进入冷却。"
             android:textSize="12sp"
             android:textColor="#666666" />
 
@@ -207,7 +263,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="含义：收到对方消息后，在这个范围内随机等一个时间再回复（模拟真人思考，避免秒回）"
+            android:text="两个模式的聊天回复都生效：生成回复后，在这个范围内随机等待再发送；奇遇铃仍立即优先。"
             android:textSize="12sp"
             android:textColor="#666666" />
 
@@ -244,6 +300,267 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:text="保存时间设置" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="⑥ 自身资料"
+            android:textColor="#000000"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="对方问到你的情况时会按这里的资料回答。仅保存在本机，未填写的信息不会让模型编造。"
+            android:textColor="#555555"
+            android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="性别与年龄"
+            android:textColor="#222222"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etSelfGender"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:background="#FFF3E0"
+                android:hint="性别，如：男"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:maxLength="12"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:textColor="#000000" />
+
+            <EditText
+                android:id="@+id/etSelfAge"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:background="#FFF3E0"
+                android:hint="年龄，如：25"
+                android:importantForAutofill="no"
+                android:inputType="number"
+                android:maxLength="3"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:textColor="#000000" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="现居地区与星座"
+            android:textColor="#222222"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:orientation="horizontal">
+
+            <EditText
+                android:id="@+id/etSelfRegion"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:background="#FFF3E0"
+                android:hint="如：四川绵阳"
+                android:importantForAutofill="no"
+                android:inputType="textPostalAddress"
+                android:maxLength="40"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:textColor="#000000" />
+
+            <EditText
+                android:id="@+id/etSelfZodiac"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:background="#FFF3E0"
+                android:hint="如：双子座"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:maxLength="12"
+                android:minHeight="48dp"
+                android:padding="12dp"
+                android:textColor="#000000" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="职业或工作状态"
+            android:textColor="#222222"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etSelfOccupation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:background="#FFF3E0"
+            android:hint="如：互联网从业 / 自由职业 / 在读"
+            android:importantForAutofill="no"
+            android:inputType="text"
+            android:maxLength="60"
+            android:minHeight="48dp"
+            android:padding="12dp"
+            android:textColor="#000000" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="其他真实资料"
+            android:textColor="#222222"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etSelfDetails"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:background="#FFF3E0"
+            android:gravity="top|start"
+            android:hint="可填写家乡、身高、感情状态、兴趣、作息、性格等。只写愿意告诉别人的真实信息。"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textCapSentences"
+            android:maxLength="1000"
+            android:minHeight="112dp"
+            android:padding="12dp"
+            android:textColor="#000000"
+            android:textColorHint="#777777" />
+
+        <Button
+            android:id="@+id/btnSaveSelfProfile"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:minHeight="48dp"
+            android:text="保存自身资料" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="⑦ 聊天风格学习"
+            android:textColor="#000000"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvLearningStats"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:lineSpacingExtra="3dp"
+            android:text="风格学习：已开启 · 0 条人工样本&#10;联系人记忆：已开启 · 0 条本地记忆"
+            android:textColor="#333333"
+            android:textSize="14sp" />
+
+        <CheckBox
+            android:id="@+id/cbStyleLearning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:minHeight="48dp"
+            android:text="学习我的人工回复风格"
+            android:textColor="#000000" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="机器人发送的内容不会加入风格样本，避免反复学习 AI 套话。数据仅保存在本机。"
+            android:textColor="#666666"
+            android:textSize="12sp" />
+
+        <CheckBox
+            android:id="@+id/cbContactMemory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:minHeight="48dp"
+            android:text="记住联系人聊过的内容"
+            android:textColor="#000000" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="导入我的聊天样本"
+            android:textColor="#000000"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/etStyleSamples"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="#FFF3E0"
+            android:gravity="top|start"
+            android:hint="对方：下班了吗&#10;我：刚下，累死了&#10;&#10;对方：吃饭没&#10;我：还没呢"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textCapSentences"
+            android:maxLength="20000"
+            android:minHeight="132dp"
+            android:padding="12dp"
+            android:scrollbars="vertical"
+            android:textColor="#000000"
+            android:textColorHint="#777777"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnImportStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:minHeight="48dp"
+            android:text="导入聊天样本" />
+
+        <Button
+            android:id="@+id/btnClearStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="48dp"
+            android:text="清除聊天风格样本" />
+
+        <Button
+            android:id="@+id/btnClearContactMemory"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="28dp"
+            android:minHeight="48dp"
+            android:text="清除联系人记忆" />
 
     </LinearLayout>
 </ScrollView>

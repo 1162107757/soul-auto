@@ -34,4 +34,12 @@ class FloatingStatusFormatterTest {
             FloatingStatusFormatter.detail(false, false, "已停止", 0L, 0L),
         )
     }
+
+    @Test
+    fun stopped_state_keeps_the_failure_reason_visible() {
+        assertEquals(
+            "任务异常退出；点击启动",
+            FloatingStatusFormatter.detail(false, true, "任务异常退出", 0L, 0L),
+        )
+    }
 }

@@ -20,7 +20,13 @@ object FloatingStatusFormatter {
         now: Long,
     ): String {
         if (!serviceAvailable) return "请先开启无障碍服务"
-        if (!running) return if (statusString in blockingStatuses) statusString else "点击启动"
+        if (!running) {
+            return when {
+                statusString in blockingStatuses -> statusString
+                statusString.isBlank() || statusString == "已停止" || statusString == "用户手动停止" -> "点击启动"
+                else -> "$statusString；点击启动"
+            }
+        }
 
         val action = statusString
             .removeSuffix("（思考中）")

@@ -8,14 +8,18 @@ package com.soulbot.app
  * another user's reply.
  */
 internal class ConversationSeenTracker {
-    private val seenByConversation = mutableMapOf<String, MutableSet<String>>()
+    private val handledByConversation = mutableMapOf<String, List<String>>()
 
     fun unseen(conversation: String, incoming: List<String>): List<String> {
-        val seen = seenByConversation[conversation].orEmpty()
-        return incoming.filter { it !in seen }
+        val handled = handledByConversation[conversation] ?: return incoming
+        val maxOverlap = minOf(handled.size, incoming.size)
+        val overlap = (maxOverlap downTo 1).firstOrNull { size ->
+            handled.takeLast(size) == incoming.take(size)
+        } ?: 0
+        return incoming.drop(overlap)
     }
 
     fun markSeen(conversation: String, incoming: List<String>) {
-        seenByConversation.getOrPut(conversation) { mutableSetOf() }.addAll(incoming)
+        handledByConversation[conversation] = incoming.toList()
     }
 }
