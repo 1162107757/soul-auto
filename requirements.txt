@@ -1,3 +1,0 @@
-uiautomator2
-openai
-python-dotenv
