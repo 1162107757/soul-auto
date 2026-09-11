@@ -21,6 +21,14 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".TaskSettingsActivity" android:exported="false" />
+        <activity android:name=".ModelSettingsActivity" android:exported="false" />
+        <activity android:name=".ModelEndpointEditActivity" android:exported="false" />
+        <activity android:name=".ProfileSettingsActivity" android:exported="false" />
+        <activity android:name=".ReplyLearningActivity" android:exported="false" />
+        <activity android:name=".ChatSamplesActivity" android:exported="false" />
+        <activity android:name=".DataBackupActivity" android:exported="false" />
+
         <activity
             android:name=".HistoryActivity"
             android:exported="false" />

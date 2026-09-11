@@ -68,7 +68,7 @@ class ChatLearningTest {
     }
 
     @Test
-    fun answerToAQuestion_requiresANonGenericHook() {
+    fun aPlannedHookMustBeSpecificRatherThanGeneric() {
         assertEquals(
             "回答后缺少自然的话题引子",
             ReplyNaturalness.rejectionReason("我25", requireEngagingHook = true),
@@ -82,6 +82,24 @@ class ChatLearningTest {
             ReplyNaturalness.rejectionReason(
                 "我25，周末喜欢去爬山，你那边有没有适合看日落的地方？",
                 requireEngagingHook = true,
+            ),
+        )
+    }
+
+    @Test
+    fun nonQuestionTurnRejectsAnotherFollowUpQuestion() {
+        assertEquals(
+            "这一轮不应继续追问",
+            ReplyNaturalness.rejectionReason(
+                "这雨确实烦，你今天出门了吗？",
+                forbidQuestion = true,
+            ),
+        )
+        assertEquals(
+            null,
+            ReplyNaturalness.rejectionReason(
+                "这雨确实烦，我鞋到现在都没晾干",
+                forbidQuestion = true,
             ),
         )
     }

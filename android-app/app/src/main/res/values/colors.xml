@@ -1,6 +1,13 @@
 <resources>
-    <color name="purple_500">#6200EE</color>
-    <color name="purple_700">#3700B3</color>
+    <color name="purple_500">#6D28D9</color>
+    <color name="purple_700">#4C1D95</color>
+    <color name="brand_primary">#6D28D9</color>
+    <color name="brand_primary_dark">#4C1D95</color>
+    <color name="brand_on_primary">#FFFFFF</color>
+    <color name="brand_primary_container">#EDE9FE</color>
+    <color name="brand_on_primary_container">#2E1065</color>
+    <color name="state_success">#16864B</color>
+    <color name="state_warning">#B45309</color>
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
 </resources>

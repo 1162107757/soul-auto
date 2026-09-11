@@ -11,10 +11,20 @@ import java.time.format.TextStyle
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-object ModelClient {
-    /** Primary plus one fallback request; used by the floating countdown. */
-    const val MAX_GENERATION_WAIT_MS = 65_000L
+enum class ModelFailureType {
+    TEMPORARY,
+    RATE_LIMIT,
+    CONFIGURATION,
+}
 
+data class ModelCallResult(
+    val content: String?,
+    val error: String = "",
+    val failureType: ModelFailureType = ModelFailureType.TEMPORARY,
+    val retryAfterMs: Long = 0,
+)
+
+object ModelClient {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
@@ -26,8 +36,6 @@ object ModelClient {
         private set
     @Volatile var lastUsedModel: String = ""
         private set
-
-    private data class Attempt(val content: String?, val error: String)
 
     fun buildSystemPrompt(profile: SelfProfile = SelfProfile()): String {
         val now = LocalDateTime.now()
@@ -43,49 +51,27 @@ object ModelClient {
             "提到时间时以上面的真实日期为准，不要编造节日或行程。"
     }
 
+    /** Compatibility wrapper for call sites that do not need failover metadata. */
     fun chat(
         apiKey: String,
         baseUrl: String,
         model: String,
         systemPrompt: String,
-        messages: List<Pair<String, String>>
+        messages: List<Pair<String, String>>,
     ): String? {
-        val primary = requestOnce(apiKey, baseUrl, model, systemPrompt, messages)
-        if (primary.content != null) {
-            lastError = ""
-            lastUsedModel = model
-            return primary.content
-        }
-
-        // APINebula 的 Codex 通道偶尔会返回 get_channel_failed。此时使用同一
-        // API Key 临时回退到价格更低的 terra，不改动用户保存的首选模型。
-        if (baseUrl.contains("apinebula.ai", ignoreCase = true) &&
-            model == "gpt-5.6-sol" &&
-            isTemporaryChannelError(primary.error)
-        ) {
-            val fallbackModel = "gpt-5.6-terra"
-            android.util.Log.d("SoulBot", "主模型暂不可用，尝试备用模型 $fallbackModel")
-            val fallback = requestOnce(apiKey, baseUrl, fallbackModel, systemPrompt, messages)
-            if (fallback.content != null) {
-                lastError = ""
-                lastUsedModel = fallbackModel
-                return fallback.content
-            }
-            lastError = fallback.error
-            return null
-        }
-
-        lastError = primary.error
-        return null
+        val result = chatOnce(apiKey, baseUrl, model, systemPrompt, messages)
+        lastError = result.error
+        return result.content
     }
 
-    private fun requestOnce(
+    fun chatOnce(
         apiKey: String,
         baseUrl: String,
         model: String,
         systemPrompt: String,
         messages: List<Pair<String, String>>,
-    ): Attempt {
+        timeoutMs: Long = 30_000L,
+    ): ModelCallResult {
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", systemPrompt))
         for ((role, content) in messages) {
@@ -93,43 +79,70 @@ object ModelClient {
         }
         val body = JSONObject().put("model", model).put("messages", msgs)
         val url = baseUrl.trimEnd('/') + "/chat/completions"
-        val req = Request.Builder()
-            .url(url)
-            .addHeader("Authorization", "Bearer $apiKey")
-            .addHeader("Content-Type", "application/json")
-            .addHeader("User-Agent", "SoulBot-Android/1.0")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
         return try {
-            client.newCall(req).execute().use { resp ->
-                val responseBody = resp.body?.string().orEmpty()
-                if (!resp.isSuccessful) {
-                    val error = parseError(resp.code, responseBody)
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer $apiKey")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "SoulBot-Android/1.0")
+                .post(body.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+            val call = client.newCall(request)
+            call.timeout().timeout(timeoutMs.coerceIn(5_000L, 30_000L), TimeUnit.MILLISECONDS)
+            call.execute().use { response ->
+                val responseBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val error = parseError(response.code, responseBody)
+                    lastError = error
                     android.util.Log.d("SoulBot", "模型请求失败: $error")
-                    return@use Attempt(null, error)
+                    return@use ModelCallResult(
+                        content = null,
+                        error = error,
+                        failureType = classifyHttpFailure(response.code, responseBody),
+                        retryAfterMs = parseRetryAfterMs(response.header("Retry-After")),
+                    )
                 }
                 val content = runCatching { parseContent(JSONObject(responseBody)) }.getOrNull()
                 if (content == null) {
-                    Attempt(null, "HTTP ${resp.code}：响应中没有可用文本")
+                    val error = "HTTP ${response.code}：响应中没有可用文本"
+                    lastError = error
+                    ModelCallResult(null, error)
                 } else {
-                    Attempt(content, "")
+                    lastError = ""
+                    lastUsedModel = model
+                    ModelCallResult(content)
                 }
             }
         } catch (e: Exception) {
             val error = "${e.javaClass.simpleName}：${e.message.orEmpty()}".take(180)
+            lastError = error
             android.util.Log.d("SoulBot", "模型请求异常: $error")
-            Attempt(null, error)
+            val type = if (e is IllegalArgumentException) {
+                ModelFailureType.CONFIGURATION
+            } else {
+                ModelFailureType.TEMPORARY
+            }
+            ModelCallResult(null, error, type)
         }
     }
 
-    private fun isTemporaryChannelError(error: String): Boolean =
-        error.contains("503") ||
-            error.contains("get_channel_failed", ignoreCase = true) ||
-            error.contains("无可用通道") ||
-            error.contains("暂时不可用") ||
-            error.contains("timeout", ignoreCase = true) ||
-            error.contains("timed out", ignoreCase = true) ||
-            error.contains("SocketTimeoutException")
+    private fun classifyHttpFailure(statusCode: Int, body: String): ModelFailureType {
+        if (statusCode == 429) return ModelFailureType.RATE_LIMIT
+        if (statusCode in setOf(401, 403, 404, 405)) return ModelFailureType.CONFIGURATION
+        if (statusCode in setOf(400, 422)) {
+            val lower = body.lowercase()
+            if ((lower.contains("model") || lower.contains("模型")) &&
+                (lower.contains("invalid") || lower.contains("not found") ||
+                    lower.contains("不存在") || lower.contains("无效"))
+            ) {
+                return ModelFailureType.CONFIGURATION
+            }
+        }
+        return ModelFailureType.TEMPORARY
+    }
+
+    private fun parseRetryAfterMs(value: String?): Long =
+        value?.trim()?.toLongOrNull()?.coerceIn(1, 600)?.times(1000) ?: 0
 
     private fun parseError(statusCode: Int, body: String): String {
         val detail = runCatching {
@@ -144,7 +157,6 @@ object ModelClient {
         return if (detail.isBlank()) "HTTP $statusCode" else "HTTP $statusCode：$detail".take(180)
     }
 
-    // 兼容不同模型的返回格式
     private fun parseContent(json: JSONObject): String? {
         val choices = json.optJSONArray("choices") ?: return null
         if (choices.length() == 0) return null
@@ -165,7 +177,6 @@ object ModelClient {
             ?: choice.optString("text")?.takeIf { it.isNotBlank() }
             ?: msg?.optString("reasoning_content")?.takeIf { it.isNotBlank() }
             ?: return null
-        // 去掉 <think>...</think> 思维链标记（reasoning 模型会带这个）
         val cleaned = raw
             .replace(Regex("""<think>.*?</think>""", RegexOption.DOT_MATCHES_ALL), "")
             .trim()

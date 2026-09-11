@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="?attr/colorSurface">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <include layout="@layout/view_toolbar" />
+        <androidx.core.widget.NestedScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:clipToPadding="false" android:fillViewport="true">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingStart="20dp" android:paddingTop="8dp" android:paddingEnd="20dp" android:paddingBottom="28dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" app:cardBackgroundColor="?attr/colorPrimaryContainer" app:cardCornerRadius="16dp" app:cardElevation="0dp" app:strokeWidth="0dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:padding="18dp">
+                        <TextView android:id="@+id/tvConversationMemoryStats" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:lineSpacingExtra="4dp" android:text="0 位联系人\n0 条消息 · 回复时会参考" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" android:textColor="?attr/colorOnPrimaryContainer" />
+                        <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/progressData" android:layout_width="32dp" android:layout_height="32dp" android:indeterminate="true" android:visibility="gone" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="记录" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" app:cardBackgroundColor="?attr/colorSurfaceVariant" app:cardCornerRadius="16dp" app:cardElevation="0dp" app:strokeWidth="0dp">
+                    <LinearLayout android:id="@+id/rowHistory" android:layout_width="match_parent" android:layout_height="wrap_content" android:background="?attr/selectableItemBackground" android:clickable="true" android:focusable="true" android:gravity="center_vertical" android:minHeight="76dp" android:orientation="horizontal" android:paddingStart="16dp" android:paddingEnd="12dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="互动记录" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="查看自动发送成功的历史记录" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                        <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="迁移与备份" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="导出文件包含聊天内容并使用明文 JSON，请只保存在可信位置。导入会合并并自动跳过重复记录。" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnExportConversationMemory" style="@style/Widget.SoulBot.PrimaryButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp" android:text="导出全部聊天记忆" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnImportConversationMemory" style="@style/Widget.SoulBot.OutlinedButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="导入并合并聊天记忆" />
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="32dp" android:text="危险操作" android:textAppearance="@style/TextAppearance.SoulBot.Section" android:textColor="?attr/colorError" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnClearConversationMemory" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:minHeight="48dp" android:text="清空完整聊天记忆" android:textColor="?attr/colorError" app:strokeColor="?attr/colorError" />
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

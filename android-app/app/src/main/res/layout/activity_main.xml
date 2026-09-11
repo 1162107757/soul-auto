@@ -1,566 +1,256 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true">
+    android:background="?attr/colorSurface">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/main_title"
-            android:textColor="#16131D"
-            android:textSize="26sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="① 选择模型"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
-
-        <Spinner
-            android:id="@+id/spModel"
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:minHeight="48dp" />
-
-        <EditText
-            android:id="@+id/etBaseUrl"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:hint="中转站地址，如 https://xxx.com/v1"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:visibility="gone"
-            android:importantForAutofill="no" />
-
-        <EditText
-            android:id="@+id/etModel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="模型名，如 gpt-4o"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:visibility="gone"
-            android:importantForAutofill="no" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="② 该模型的 API Key"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
-
-        <EditText
-            android:id="@+id/etApiKey"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:hint="粘贴该模型的 key"
-            android:inputType="textPassword"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorSurface"
             android:minHeight="56dp"
-            android:padding="12dp"
-            android:textSize="16sp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:importantForAutofill="no" />
+            app:title="@string/main_title"
+            app:titleTextAppearance="@style/TextAppearance.Material3.TitleLarge" />
 
-        <CheckBox
-            android:id="@+id/cbShowKey"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="显示明文"
-            android:textColor="#000000" />
-
-        <Button
-            android:id="@+id/btnSave"
+        <androidx.core.widget.NestedScrollView
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="保存 Key" />
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:fillViewport="true">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="③ 权限状态"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
-
-        <TextView
-            android:id="@+id/tvStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:textSize="15sp"
-            android:textColor="#000000"
-            android:lineSpacingExtra="4dp" />
-
-        <Button
-            android:id="@+id/btnAccessibility"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="开启无障碍服务" />
-
-        <Button
-            android:id="@+id/btnOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="开启悬浮窗权限" />
-
-        <Button
-            android:id="@+id/btnStart"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="启动悬浮按钮" />
-
-        <Button
-            android:id="@+id/btnHistory"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="查看互动记录" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="④ 工作模式"
-            android:textColor="#000000"
-            android:textSize="18sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="两个模式都优先处理奇遇铃和聊天消息，仅主动找人的方式互斥。切换后重新启动自动化生效。"
-            android:textColor="#555555"
-            android:textSize="13sp" />
-
-        <RadioGroup
-            android:id="@+id/rgAutomationMode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical">
-
-            <RadioButton
-                android:id="@+id/rbPlanetChat"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:minHeight="64dp"
-                android:paddingStart="4dp"
-                android:paddingEnd="8dp"
-                android:text="星球与聊天&#10;奇遇铃优先，其次回复聊天；空闲时进行灵魂匹配，不进入广场"
-                android:textColor="#000000"
-                android:textSize="15sp" />
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="28dp">
 
-            <RadioButton
-                android:id="@+id/rbSquareDm"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:minHeight="64dp"
-                android:paddingStart="4dp"
-                android:paddingEnd="8dp"
-                android:text="广场与私聊&#10;奇遇铃优先，其次回复聊天；空闲时刷同城广场私聊，不做灵魂匹配"
-                android:textColor="#000000"
-                android:textSize="15sp" />
-        </RadioGroup>
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="?attr/colorPrimaryContainer"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="⑤ 时间间隔设置"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="20dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="1. 广场私信间隔"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
-        <EditText
-            android:id="@+id/etSquareInterval"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:hint="秒，默认 240"
-            android:inputType="number"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:importantForAutofill="no" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="仅“广场与私聊”模式的主动私聊生效：每隔这么久尝试一次；未成功发送不进入冷却。"
-            android:textSize="12sp"
-            android:textColor="#666666" />
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="2. 回复延迟范围"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
-        <EditText
-            android:id="@+id/etThinkMin"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:hint="最小秒数，默认 5"
-            android:inputType="number"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:importantForAutofill="no" />
-        <EditText
-            android:id="@+id/etThinkMax"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:hint="最大秒数，默认 15"
-            android:inputType="number"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:importantForAutofill="no" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="两个模式的聊天回复都生效：生成回复后，在这个范围内随机等待再发送；奇遇铃仍立即优先。"
-            android:textSize="12sp"
-            android:textColor="#666666" />
+                            <View
+                                android:id="@+id/statusDot"
+                                android:layout_width="10dp"
+                                android:layout_height="10dp"
+                                android:background="@drawable/bg_status_dot" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="3. 打招呼去重间隔"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            android:textColor="#000000" />
-        <EditText
-            android:id="@+id/etGreetHours"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:hint="小时，默认 24"
-            android:inputType="number"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:background="#FFF3E0"
-            android:textColor="#000000"
-            android:importantForAutofill="no" />
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="含义：给同一个人发过招呼后，如果 TA 发了新帖子，要隔这么久才再次打招呼（内容没变则永远不再打）"
-            android:textSize="12sp"
-            android:textColor="#666666" />
+                            <TextView
+                                android:id="@+id/tvRuntimeTitle"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:layout_weight="1"
+                                android:text="已停止"
+                                android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
+                                android:textColor="?attr/colorOnPrimaryContainer"
+                                android:textStyle="bold" />
+                        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnSaveTime"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="保存时间设置" />
+                        <TextView
+                            android:id="@+id/tvRuntimeDetail"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:lineSpacingExtra="3dp"
+                            android:text="请先开启无障碍服务"
+                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                            android:textColor="?attr/colorOnPrimaryContainer" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="⑥ 自身资料"
-            android:textColor="#000000"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnPrimary"
+                            style="@style/Widget.SoulBot.PrimaryButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="启动悬浮控制" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="对方问到你的情况时会按这里的资料回答。仅保存在本机，未填写的信息不会让模型编造。"
-            android:textColor="#555555"
-            android:textSize="13sp" />
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="运行权限"
+                    android:textAppearance="@style/TextAppearance.SoulBot.Section" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:text="性别与年龄"
-            android:textColor="#222222"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:orientation="horizontal">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAccessibility"
+                        style="@style/Widget.SoulBot.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="4dp"
+                        android:layout_weight="1"
+                        android:text="开启无障碍" />
 
-            <EditText
-                android:id="@+id/etSelfGender"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:background="#FFF3E0"
-                android:hint="性别，如：男"
-                android:importantForAutofill="no"
-                android:inputType="text"
-                android:maxLength="12"
-                android:minHeight="48dp"
-                android:padding="12dp"
-                android:textColor="#000000" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOverlay"
+                        style="@style/Widget.SoulBot.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:text="授权悬浮窗" />
+                </LinearLayout>
 
-            <EditText
-                android:id="@+id/etSelfAge"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:background="#FFF3E0"
-                android:hint="年龄，如：25"
-                android:importantForAutofill="no"
-                android:inputType="number"
-                android:maxLength="3"
-                android:minHeight="48dp"
-                android:padding="12dp"
-                android:textColor="#000000" />
-        </LinearLayout>
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="配置"
+                    android:textAppearance="@style/TextAppearance.SoulBot.Section" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="现居地区与星座"
-            android:textColor="#222222"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:orientation="horizontal">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
 
-            <EditText
-                android:id="@+id/etSelfRegion"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:background="#FFF3E0"
-                android:hint="如：四川绵阳"
-                android:importantForAutofill="no"
-                android:inputType="textPostalAddress"
-                android:maxLength="40"
-                android:minHeight="48dp"
-                android:padding="12dp"
-                android:textColor="#000000" />
+                        <LinearLayout
+                            android:id="@+id/rowTaskSettings"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="72dp"
+                            android:orientation="horizontal"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="12dp">
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="任务设置" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                                <TextView android:id="@+id/tvTaskSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                            </LinearLayout>
+                            <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
 
-            <EditText
-                android:id="@+id/etSelfZodiac"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:background="#FFF3E0"
-                android:hint="如：双子座"
-                android:importantForAutofill="no"
-                android:inputType="text"
-                android:maxLength="12"
-                android:minHeight="48dp"
-                android:padding="12dp"
-                android:textColor="#000000" />
-        </LinearLayout>
+                        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginStart="16dp" android:background="?attr/colorOutlineVariant" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="职业或工作状态"
-            android:textColor="#222222"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+                        <LinearLayout
+                            android:id="@+id/rowModelSettings"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="72dp"
+                            android:orientation="horizontal"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="12dp">
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="模型与 API" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                                <TextView android:id="@+id/tvModelSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                            </LinearLayout>
+                            <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
 
-        <EditText
-            android:id="@+id/etSelfOccupation"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:background="#FFF3E0"
-            android:hint="如：互联网从业 / 自由职业 / 在读"
-            android:importantForAutofill="no"
-            android:inputType="text"
-            android:maxLength="60"
-            android:minHeight="48dp"
-            android:padding="12dp"
-            android:textColor="#000000" />
+                        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginStart="16dp" android:background="?attr/colorOutlineVariant" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="其他真实资料"
-            android:textColor="#222222"
-            android:textSize="14sp"
-            android:textStyle="bold" />
+                        <LinearLayout
+                            android:id="@+id/rowProfileSettings"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="72dp"
+                            android:orientation="horizontal"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="12dp">
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="我的资料" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                                <TextView android:id="@+id/tvProfileSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                            </LinearLayout>
+                            <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
 
-        <EditText
-            android:id="@+id/etSelfDetails"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="5dp"
-            android:background="#FFF3E0"
-            android:gravity="top|start"
-            android:hint="可填写家乡、身高、感情状态、兴趣、作息、性格等。只写愿意告诉别人的真实信息。"
-            android:importantForAutofill="no"
-            android:inputType="textMultiLine|textCapSentences"
-            android:maxLength="1000"
-            android:minHeight="112dp"
-            android:padding="12dp"
-            android:textColor="#000000"
-            android:textColorHint="#777777" />
+                        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginStart="16dp" android:background="?attr/colorOutlineVariant" />
 
-        <Button
-            android:id="@+id/btnSaveSelfProfile"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:minHeight="48dp"
-            android:text="保存自身资料" />
+                        <LinearLayout
+                            android:id="@+id/rowReplyLearning"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="72dp"
+                            android:orientation="horizontal"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="12dp">
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="回复与学习" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                                <TextView android:id="@+id/tvReplySummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                            </LinearLayout>
+                            <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="⑦ 聊天风格学习"
-            android:textColor="#000000"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+                        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginStart="16dp" android:background="?attr/colorOutlineVariant" />
 
-        <TextView
-            android:id="@+id/tvLearningStats"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:lineSpacingExtra="3dp"
-            android:text="风格学习：已开启 · 0 条人工样本&#10;联系人记忆：已开启 · 0 条本地记忆"
-            android:textColor="#333333"
-            android:textSize="14sp" />
-
-        <CheckBox
-            android:id="@+id/cbStyleLearning"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:minHeight="48dp"
-            android:text="学习我的人工回复风格"
-            android:textColor="#000000" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="机器人发送的内容不会加入风格样本，避免反复学习 AI 套话。数据仅保存在本机。"
-            android:textColor="#666666"
-            android:textSize="12sp" />
-
-        <CheckBox
-            android:id="@+id/cbContactMemory"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:minHeight="48dp"
-            android:text="记住联系人聊过的内容"
-            android:textColor="#000000" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="导入我的聊天样本"
-            android:textColor="#000000"
-            android:textSize="15sp"
-            android:textStyle="bold" />
-
-        <EditText
-            android:id="@+id/etStyleSamples"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:background="#FFF3E0"
-            android:gravity="top|start"
-            android:hint="对方：下班了吗&#10;我：刚下，累死了&#10;&#10;对方：吃饭没&#10;我：还没呢"
-            android:importantForAutofill="no"
-            android:inputType="textMultiLine|textCapSentences"
-            android:maxLength="20000"
-            android:minHeight="132dp"
-            android:padding="12dp"
-            android:scrollbars="vertical"
-            android:textColor="#000000"
-            android:textColorHint="#777777"
-            android:textSize="14sp" />
-
-        <Button
-            android:id="@+id/btnImportStyle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:minHeight="48dp"
-            android:text="导入聊天样本" />
-
-        <Button
-            android:id="@+id/btnClearStyle"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:minHeight="48dp"
-            android:text="清除聊天风格样本" />
-
-        <Button
-            android:id="@+id/btnClearContactMemory"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="28dp"
-            android:minHeight="48dp"
-            android:text="清除联系人记忆" />
-
+                        <LinearLayout
+                            android:id="@+id/rowDataBackup"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:minHeight="72dp"
+                            android:orientation="horizontal"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="12dp">
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="数据与备份" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                                <TextView android:id="@+id/tvDataSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:maxLines="1" android:ellipsize="end" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                            </LinearLayout>
+                            <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
     </LinearLayout>
-</ScrollView>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

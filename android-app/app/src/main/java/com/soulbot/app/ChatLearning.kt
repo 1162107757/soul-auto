@@ -175,6 +175,7 @@ object ReplyNaturalness {
         text: String,
         requireTopicContinuation: Boolean = false,
         requireEngagingHook: Boolean = false,
+        forbidQuestion: Boolean = false,
     ): String? {
         val clean = text.trim()
         val trailingLatin = Regex("""([A-Za-z]{2,})$""").find(clean)
@@ -197,6 +198,8 @@ object ReplyNaturalness {
                 "没有延续前文话题"
             requireEngagingHook && !ConversationReplyContext.hasEngagingHook(clean) ->
                 "回答后缺少自然的话题引子"
+            forbidQuestion && ConversationReplyContext.asksQuestion(clean) ->
+                "这一轮不应继续追问"
             else -> null
         }
     }

@@ -57,12 +57,23 @@ object ConversationReplyContext {
     }
 
     /**
-     * Normal chat turns should leave the other person an easy place to continue.
-     * The only exception is an explicit goodbye/busy/sleep boundary.
+     * Questions are conversation tools, not a mandatory suffix. A first statement
+     * can get one natural hook, then at least two outgoing turns must pass before
+     * another question. Direct questions from the other person are answered without
+     * immediately throwing another question back.
      */
-    fun needsEngagingHook(focusIncoming: List<String>): Boolean {
+    fun shouldAskEngagingQuestion(
+        thread: List<Pair<String, String>>,
+        focusIncoming: List<String>,
+    ): Boolean {
         val latest = focusIncoming.lastOrNull(String::isNotBlank) ?: return false
-        return !isConversationClosing(latest)
+        if (isConversationClosing(latest) || asksQuestion(latest)) return false
+
+        val recentOutgoing = thread.filter { it.first == "out" }.takeLast(3).map { it.second }
+        if (recentOutgoing.takeLast(2).any(::asksQuestion)) return false
+        if (recentOutgoing.isEmpty()) return true
+        if (isLowInformation(latest)) return true
+        return recentOutgoing.size >= 2 && recentOutgoing.none(::asksQuestion)
     }
 
     fun hasEngagingHook(reply: String): Boolean {

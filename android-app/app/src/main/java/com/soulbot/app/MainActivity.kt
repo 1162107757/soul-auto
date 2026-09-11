@@ -1,132 +1,84 @@
 package com.soulbot.app
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
-import android.text.method.PasswordTransformationMethod
-import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.EditText
-import android.widget.RadioGroup
-import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.snackbar.Snackbar
 
 class MainActivity : AppCompatActivity() {
-
-    private lateinit var tvStatus: TextView
-    private lateinit var etKey: EditText
-    private lateinit var spModel: Spinner
-    private lateinit var etBaseUrl: EditText
-    private lateinit var etModel: EditText
-    private lateinit var tvLearningStats: TextView
-    private lateinit var learningDb: ChatLearningDatabase
-    private val modelNames = ModelList.MODELS.map { it.name }
+    private lateinit var tvRuntimeTitle: TextView
+    private lateinit var tvRuntimeDetail: TextView
+    private lateinit var statusDot: android.view.View
+    private lateinit var btnPrimary: MaterialButton
+    private lateinit var btnAccessibility: MaterialButton
+    private lateinit var btnOverlay: MaterialButton
+    private lateinit var tvTaskSummary: TextView
+    private lateinit var tvModelSummary: TextView
+    private lateinit var tvProfileSummary: TextView
+    private lateinit var tvReplySummary: TextView
+    private lateinit var tvDataSummary: TextView
+    private lateinit var memoryDb: ConversationMemoryDatabase
+    private val refreshHandler = Handler(Looper.getMainLooper())
+    private val refreshRunnable = object : Runnable {
+        override fun run() {
+            refreshDashboard()
+            refreshHandler.postDelayed(this, 1000)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        learningDb = ChatLearningDatabase(applicationContext)
-
-        etKey = findViewById(R.id.etApiKey)
-        val cbShow = findViewById<CheckBox>(R.id.cbShowKey)
-        val btnSave = findViewById<Button>(R.id.btnSave)
-        val btnAcc = findViewById<Button>(R.id.btnAccessibility)
-        val btnOverlay = findViewById<Button>(R.id.btnOverlay)
-        val btnStart = findViewById<Button>(R.id.btnStart)
-        val btnHistory = findViewById<Button>(R.id.btnHistory)
-        val rgAutomationMode = findViewById<RadioGroup>(R.id.rgAutomationMode)
-        val etSquareInterval = findViewById<EditText>(R.id.etSquareInterval)
-        val etThinkMin = findViewById<EditText>(R.id.etThinkMin)
-        val etThinkMax = findViewById<EditText>(R.id.etThinkMax)
-        val etGreetHours = findViewById<EditText>(R.id.etGreetHours)
-        val btnSaveTime = findViewById<Button>(R.id.btnSaveTime)
-        val etSelfGender = findViewById<EditText>(R.id.etSelfGender)
-        val etSelfAge = findViewById<EditText>(R.id.etSelfAge)
-        val etSelfRegion = findViewById<EditText>(R.id.etSelfRegion)
-        val etSelfZodiac = findViewById<EditText>(R.id.etSelfZodiac)
-        val etSelfOccupation = findViewById<EditText>(R.id.etSelfOccupation)
-        val etSelfDetails = findViewById<EditText>(R.id.etSelfDetails)
-        val btnSaveSelfProfile = findViewById<Button>(R.id.btnSaveSelfProfile)
-        val cbStyleLearning = findViewById<CheckBox>(R.id.cbStyleLearning)
-        val cbContactMemory = findViewById<CheckBox>(R.id.cbContactMemory)
-        val etStyleSamples = findViewById<EditText>(R.id.etStyleSamples)
-        val btnImportStyle = findViewById<Button>(R.id.btnImportStyle)
-        val btnClearStyle = findViewById<Button>(R.id.btnClearStyle)
-        val btnClearContactMemory = findViewById<Button>(R.id.btnClearContactMemory)
-        tvStatus = findViewById(R.id.tvStatus)
-        tvLearningStats = findViewById(R.id.tvLearningStats)
-        spModel = findViewById(R.id.spModel)
-        etBaseUrl = findViewById(R.id.etBaseUrl)
-        etModel = findViewById(R.id.etModel)
-
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, modelNames)
-        spModel.adapter = adapter
-        spModel.setSelection(modelNames.indexOf(Prefs.getSelectedModel(this)).coerceAtLeast(0))
-        spModel.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val selected = modelNames[position]
-                Prefs.setSelectedModel(this@MainActivity, selected)
-                etKey.setText(Prefs.getApiKey(this@MainActivity, selected))
-                val isCustom = selected == "中转站"
-                etBaseUrl.visibility = if (isCustom) View.VISIBLE else View.GONE
-                etModel.visibility = if (isCustom) View.VISIBLE else View.GONE
-                if (isCustom) {
-                    etBaseUrl.setText(Prefs.getCustomBaseUrl(this@MainActivity))
-                    etModel.setText(Prefs.getCustomModel(this@MainActivity))
-                }
-                refreshStatus()
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        applyToolbarInsets()
+        memoryDb = ConversationMemoryDatabase(applicationContext)
+        HistoryDatabase(applicationContext).use { history ->
+            memoryDb.seedLegacyHistory(history.getAll())
         }
 
-        etKey.setText(Prefs.getApiKey(this, Prefs.getSelectedModel(this)))
+        tvRuntimeTitle = findViewById(R.id.tvRuntimeTitle)
+        tvRuntimeDetail = findViewById(R.id.tvRuntimeDetail)
+        statusDot = findViewById(R.id.statusDot)
+        btnPrimary = findViewById(R.id.btnPrimary)
+        btnAccessibility = findViewById(R.id.btnAccessibility)
+        btnOverlay = findViewById(R.id.btnOverlay)
+        tvTaskSummary = findViewById(R.id.tvTaskSummary)
+        tvModelSummary = findViewById(R.id.tvModelSummary)
+        tvProfileSummary = findViewById(R.id.tvProfileSummary)
+        tvReplySummary = findViewById(R.id.tvReplySummary)
+        tvDataSummary = findViewById(R.id.tvDataSummary)
 
-        cbShow.setOnCheckedChangeListener { _, checked ->
-            etKey.transformationMethod =
-                if (checked) null else PasswordTransformationMethod.getInstance()
-            etKey.setSelection(etKey.text.length)
+        findViewById<android.view.View>(R.id.rowTaskSettings).setOnClickListener {
+            open(TaskSettingsActivity::class.java)
+        }
+        findViewById<android.view.View>(R.id.rowModelSettings).setOnClickListener {
+            open(ModelSettingsActivity::class.java)
+        }
+        findViewById<android.view.View>(R.id.rowProfileSettings).setOnClickListener {
+            open(ProfileSettingsActivity::class.java)
+        }
+        findViewById<android.view.View>(R.id.rowReplyLearning).setOnClickListener {
+            open(ReplyLearningActivity::class.java)
+        }
+        findViewById<android.view.View>(R.id.rowDataBackup).setOnClickListener {
+            open(DataBackupActivity::class.java)
         }
 
-        btnSave.setOnClickListener {
-            val selected = modelNames[spModel.selectedItemPosition]
-            Prefs.setApiKey(this, selected, etKey.text.toString())
-            if (selected == "中转站") {
-                Prefs.setCustomBaseUrl(this, etBaseUrl.text.toString())
-                Prefs.setCustomModel(this, etModel.text.toString())
-            }
-            Toast.makeText(this, "已保存 $selected 的配置", Toast.LENGTH_SHORT).show()
-            refreshStatus()
-        }
-
-        btnAcc.setOnClickListener {
+        btnAccessibility.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
-        btnOverlay.setOnClickListener {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(intent)
-        }
-
-        btnStart.setOnClickListener {
+        btnOverlay.setOnClickListener { openOverlaySettings() }
+        btnPrimary.setOnClickListener {
             if (!isOverlayEnabled()) {
-                Toast.makeText(this, "请先授权悬浮窗权限", Toast.LENGTH_SHORT).show()
-                startActivity(
-                    Intent(
-                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                        Uri.parse("package:$packageName")
-                    )
-                )
+                openOverlaySettings()
                 return@setOnClickListener
             }
             val intent = Intent(this, FloatingButtonService::class.java)
@@ -135,170 +87,101 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
-            Toast.makeText(this, "悬浮按钮已启动", Toast.LENGTH_SHORT).show()
+            Snackbar.make(btnPrimary, "悬浮控制已启动", Snackbar.LENGTH_SHORT).show()
+            refreshDashboard()
         }
-
-        btnHistory.setOnClickListener {
-            startActivity(Intent(this, HistoryActivity::class.java))
-        }
-
-        rgAutomationMode.check(
-            when (Prefs.getAutomationMode(this)) {
-                AutomationMode.PLANET_CHAT -> R.id.rbPlanetChat
-                AutomationMode.SQUARE_DM -> R.id.rbSquareDm
-            },
-        )
-        rgAutomationMode.setOnCheckedChangeListener { _, checkedId ->
-            val mode = when (checkedId) {
-                R.id.rbSquareDm -> AutomationMode.SQUARE_DM
-                else -> AutomationMode.PLANET_CHAT
-            }
-            Prefs.setAutomationMode(this, mode)
-            Toast.makeText(this, "已切换为${mode.displayName}，下次启动生效", Toast.LENGTH_SHORT).show()
-            refreshStatus()
-        }
-
-        // 时间间隔设置
-        etSquareInterval.setText(Prefs.getSquareInterval(this).toString())
-        etThinkMin.setText(Prefs.getThinkMin(this).toString())
-        etThinkMax.setText(Prefs.getThinkMax(this).toString())
-        etGreetHours.setText(Prefs.getGreetIntervalHours(this).toString())
-
-        btnSaveTime.setOnClickListener {
-            val square = etSquareInterval.text.toString().toIntOrNull() ?: 240
-            val thinkMin = etThinkMin.text.toString().toIntOrNull() ?: 5
-            val thinkMax = etThinkMax.text.toString().toIntOrNull() ?: 15
-            val greetHours = etGreetHours.text.toString().toIntOrNull() ?: 24
-            Prefs.setSquareInterval(this, square)
-            Prefs.setThinkMin(this, thinkMin)
-            Prefs.setThinkMax(this, thinkMax)
-            Prefs.setGreetIntervalHours(this, greetHours)
-            Toast.makeText(this, "时间设置已保存", Toast.LENGTH_SHORT).show()
-        }
-
-        val selfProfile = Prefs.getSelfProfile(this)
-        etSelfGender.setText(selfProfile.gender)
-        etSelfAge.setText(selfProfile.age)
-        etSelfRegion.setText(selfProfile.region)
-        etSelfZodiac.setText(selfProfile.zodiac)
-        etSelfOccupation.setText(selfProfile.occupation)
-        etSelfDetails.setText(selfProfile.details)
-
-        btnSaveSelfProfile.setOnClickListener {
-            Prefs.setSelfProfile(
-                this,
-                SelfProfile(
-                    gender = etSelfGender.text.toString(),
-                    age = etSelfAge.text.toString(),
-                    region = etSelfRegion.text.toString(),
-                    zodiac = etSelfZodiac.text.toString(),
-                    occupation = etSelfOccupation.text.toString(),
-                    details = etSelfDetails.text.toString(),
-                ),
-            )
-            Toast.makeText(this, "自身资料已保存，后续回复立即生效", Toast.LENGTH_SHORT).show()
-        }
-
-        cbStyleLearning.isChecked = Prefs.getStyleLearningEnabled(this)
-        cbContactMemory.isChecked = Prefs.getContactMemoryEnabled(this)
-
-        cbStyleLearning.setOnCheckedChangeListener { _, checked ->
-            Prefs.setStyleLearningEnabled(this, checked)
-            refreshLearningStats()
-        }
-        cbContactMemory.setOnCheckedChangeListener { _, checked ->
-            Prefs.setContactMemoryEnabled(this, checked)
-            refreshLearningStats()
-        }
-
-        btnImportStyle.setOnClickListener {
-            val parsed = ChatSampleParser.parse(etStyleSamples.text.toString())
-            if (parsed.isEmpty()) {
-                Toast.makeText(this, "没有识别到“对方：/我：”格式的样本", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            val added = learningDb.importSamples(parsed)
-            etStyleSamples.text.clear()
-            Toast.makeText(this, "已新增 $added 条人工聊天样本", Toast.LENGTH_SHORT).show()
-            refreshLearningStats()
-        }
-
-        btnClearStyle.setOnClickListener {
-            confirmClear(
-                title = "清除聊天风格？",
-                message = "导入和自动学习的人工回复样本都会删除，联系人记忆不受影响。",
-            ) {
-                learningDb.clearStyleSamples()
-                refreshLearningStats()
-                Toast.makeText(this, "聊天风格样本已清除", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        btnClearContactMemory.setOnClickListener {
-            confirmClear(
-                title = "清除联系人记忆？",
-                message = "所有联系人过去提到的内容都会删除，聊天风格样本不受影响。",
-            ) {
-                learningDb.clearContactMemories()
-                refreshLearningStats()
-                Toast.makeText(this, "联系人记忆已清除", Toast.LENGTH_SHORT).show()
-            }
-        }
-        refreshLearningStats()
     }
 
     override fun onResume() {
         super.onResume()
-        refreshStatus()
-        refreshLearningStats()
+        refreshHandler.removeCallbacks(refreshRunnable)
+        refreshRunnable.run()
+    }
+
+    override fun onPause() {
+        refreshHandler.removeCallbacks(refreshRunnable)
+        super.onPause()
     }
 
     override fun onDestroy() {
-        learningDb.close()
+        memoryDb.close()
         super.onDestroy()
     }
 
-    private fun refreshLearningStats() {
-        if (!::tvLearningStats.isInitialized || !::learningDb.isInitialized) return
-        val styleCount = learningDb.styleSampleCount()
-        val memoryCount = learningDb.contactMemoryCount()
-        val styleState = if (Prefs.getStyleLearningEnabled(this)) "已开启" else "已暂停"
-        val memoryState = if (Prefs.getContactMemoryEnabled(this)) "已开启" else "已暂停"
-        tvLearningStats.text =
-            "风格学习：$styleState · $styleCount 条人工样本\n" +
-                "联系人记忆：$memoryState · $memoryCount 条本地记忆"
-    }
-
-    private fun confirmClear(title: String, message: String, action: () -> Unit) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage(message)
-            .setNegativeButton("取消", null)
-            .setPositiveButton("确认清除") { _, _ -> action() }
-            .show()
-    }
-
-    private fun refreshStatus() {
-        val acc = isAccessibilityEnabled()
-        val overlay = isOverlayEnabled()
-        val selected = modelNames[spModel.selectedItemPosition]
-        val hasKey = Prefs.getApiKey(this, selected).isNotEmpty()
-        tvStatus.text = buildString {
-            append("当前模型：$selected\n")
-            append("工作模式：${Prefs.getAutomationMode(this@MainActivity).displayName}\n")
-            append("无障碍服务：${if (acc) "✅ 已开启" else "❌ 未开启"}\n")
-            append("悬浮窗权限：${if (overlay) "✅ 已授权" else "❌ 未授权"}\n")
-            append("API Key：${if (hasKey) "✅ 已填写" else "❌ 未填写"}")
+    private fun refreshDashboard() {
+        val serviceAvailable = SoulBotService.instance != null
+        val running = SoulBotService.running
+        val accessibilityEnabled = isAccessibilityEnabled()
+        val rawStatus = if (serviceAvailable) SoulBotService.statusText else Prefs.getLastStopReason(this)
+        tvRuntimeTitle.text = if (!serviceAvailable && accessibilityEnabled) {
+            "等待服务连接"
+        } else {
+            FloatingStatusFormatter.title(running, serviceAvailable, rawStatus)
         }
+        tvRuntimeDetail.text = if (!serviceAvailable && accessibilityEnabled) {
+            "无障碍设置已开启；若长时间未连接，请重新开启一次"
+        } else if (!running && serviceAvailable &&
+            rawStatus !in setOf("未配置 API Key", "模型配置不完整")
+        ) {
+            "自动任务未运行，请在悬浮控制中点击启动"
+        } else {
+            FloatingStatusFormatter.detail(
+                running, serviceAvailable, rawStatus, SoulBotService.statusDeadline,
+                System.currentTimeMillis(),
+            )
+        }
+        val stateColor = when {
+            running -> R.color.state_success
+            !serviceAvailable -> R.color.state_warning
+            else -> R.color.brand_primary
+        }
+        statusDot.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, stateColor))
+
+        val overlayEnabled = isOverlayEnabled()
+        btnAccessibility.text = if (accessibilityEnabled) "无障碍设置已开启" else "开启无障碍"
+        btnOverlay.text = if (overlayEnabled) "悬浮窗已授权" else "授权悬浮窗"
+        btnPrimary.text = if (overlayEnabled) "启动悬浮控制" else "先授权悬浮窗"
+
+        val mode = Prefs.getAutomationMode(this)
+        tvTaskSummary.text = "${mode.displayName} · 回复等待 ${Prefs.getThinkMin(this)}–${Prefs.getThinkMax(this)} 秒"
+        val modelEndpoints = ModelEndpointPrefs.getEndpoints(this)
+        val enabledModels = modelEndpoints.filter(ModelEndpointRules::isRunnable)
+        tvModelSummary.text = if (enabledModels.isEmpty()) {
+            "尚无可用通道"
+        } else {
+            "已启用 ${enabledModels.size} 个 · 主用 ${enabledModels.first().displayName}"
+        }
+
+        val profile = Prefs.getSelfProfile(this)
+        val completed = listOf(
+            profile.gender, profile.age, profile.region,
+            profile.zodiac, profile.occupation, profile.details,
+        ).count(String::isNotBlank)
+        tvProfileSummary.text = "已填写 $completed/6 项 · ${profile.region.ifBlank { "地区未填写" }}"
+        val styleState = if (Prefs.getStyleLearningEnabled(this)) "风格学习开启" else "风格学习关闭"
+        val memoryState = if (Prefs.getContactMemoryEnabled(this)) "记忆引用开启" else "记忆引用关闭"
+        tvReplySummary.text = "$styleState · $memoryState"
+        tvDataSummary.text = "${memoryDb.contactCount()} 位联系人 · ${memoryDb.messageCount()} 条消息"
+    }
+
+    private fun <T> open(activity: Class<T>) = startActivity(Intent(this, activity))
+
+    private fun openOverlaySettings() {
+        startActivity(
+            Intent(
+                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:$packageName"),
+            ),
+        )
     }
 
     private fun isAccessibilityEnabled(): Boolean {
         val enabled = Settings.Secure.getString(
-            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
         ) ?: return false
         return enabled.contains(packageName)
     }
 
-    private fun isOverlayEnabled(): Boolean =
-        Settings.canDrawOverlays(this)
+    private fun isOverlayEnabled(): Boolean = Settings.canDrawOverlays(this)
 }

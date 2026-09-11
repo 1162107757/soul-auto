@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="?attr/colorSurface">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <include layout="@layout/view_toolbar" />
+        <androidx.core.widget.NestedScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:clipToPadding="false" android:fillViewport="true">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingStart="20dp" android:paddingTop="8dp" android:paddingEnd="20dp" android:paddingBottom="28dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="学习状态" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" app:cardBackgroundColor="?attr/colorPrimaryContainer" app:cardCornerRadius="16dp" app:cardElevation="0dp" app:strokeWidth="0dp">
+                    <TextView android:id="@+id/tvLearningStats" android:layout_width="match_parent" android:layout_height="wrap_content" android:lineSpacingExtra="4dp" android:padding="18dp" android:text="风格学习开启 · 0 条样本\n记忆引用开启 · 0 条旧版摘要" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnPrimaryContainer" />
+                </com.google.android.material.card.MaterialCardView>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="回复策略" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/switchStyleLearning" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:minHeight="64dp" android:text="学习我的人工回复风格" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="机器人发出的内容不会作为人工风格重复学习。" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                <com.google.android.material.materialswitch.MaterialSwitch android:id="@+id/switchContactMemory" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:minHeight="64dp" android:text="回复时使用联系人聊天记忆" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="关闭后仍会在本机保存聊天记录，但生成回复时不会引用。" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="样本" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" app:cardBackgroundColor="?attr/colorSurfaceVariant" app:cardCornerRadius="16dp" app:cardElevation="0dp" app:strokeWidth="0dp">
+                    <LinearLayout android:id="@+id/rowChatSamples" android:layout_width="match_parent" android:layout_height="wrap_content" android:background="?attr/selectableItemBackground" android:clickable="true" android:focusable="true" android:gravity="center_vertical" android:minHeight="76dp" android:orientation="horizontal" android:paddingStart="16dp" android:paddingEnd="12dp">
+                        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="聊天样本管理" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="导入样本或清理旧学习数据" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                        <ImageView android:layout_width="24dp" android:layout_height="48dp" android:importantForAccessibility="no" android:src="@drawable/ic_chevron_right" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -1,11 +1,11 @@
 <resources>
     <style name="Theme.SoulBot" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/brand_primary</item>
-        <item name="colorOnPrimary">@color/brand_on_primary</item>
-        <item name="colorPrimaryContainer">@color/brand_primary_container</item>
-        <item name="colorOnPrimaryContainer">@color/brand_on_primary_container</item>
+        <item name="colorPrimary">#C4B5FD</item>
+        <item name="colorOnPrimary">#2E1065</item>
+        <item name="colorPrimaryContainer">#4C1D95</item>
+        <item name="colorOnPrimaryContainer">#EDE9FE</item>
         <item name="android:fontFamily">sans</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightStatusBar">false</item>
         <item name="android:statusBarColor">?attr/colorSurface</item>
         <item name="android:navigationBarColor">?attr/colorSurface</item>
         <item name="android:windowActionModeOverlay">true</item>

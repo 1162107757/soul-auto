@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <include layout="@layout/view_toolbar" />
+        <androidx.core.widget.NestedScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:clipToPadding="false" android:fillViewport="true">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingStart="20dp" android:paddingTop="8dp" android:paddingEnd="20dp" android:paddingBottom="28dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="工作模式" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <TextView android:id="@+id/tvModeExplanation" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:textColor="?attr/colorOnSurfaceVariant" />
+                <RadioGroup android:id="@+id/rgAutomationMode" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:orientation="vertical">
+                    <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/rbPlanetChat" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp" android:text="星球与聊天\n灵魂匹配并发送消息" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
+                    <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/rbSquareDm" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="64dp" android:text="广场与私聊\n刷同城广场并主动私聊" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
+                </RadioGroup>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="时间设置" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+                <LinearLayout android:id="@+id/groupSquareFields" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                    <com.google.android.material.textfield.TextInputLayout android:id="@+id/tilSquareInterval" style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:hint="广场私聊间隔（秒）" app:helperText="只有成功发送私聊后才进入等待时间">
+                        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSquareInterval" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:maxLength="6" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+                <com.google.android.material.textfield.TextInputLayout android:id="@+id/tilThinkMin" style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:hint="回复等待最短时间（秒）">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etThinkMin" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:maxLength="4" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout android:id="@+id/tilThinkMax" style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="回复等待最长时间（秒）" app:helperText="普通回复会在此范围随机等待；奇遇铃仍立即处理">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etThinkMax" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:maxLength="4" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout android:id="@+id/tilGreetHours" style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="重复打招呼间隔（小时）" app:helperText="同一个人发了新内容，也要超过此时间才会再次打招呼">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etGreetHours" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:maxLength="5" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnSaveTask" style="@style/Widget.SoulBot.PrimaryButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="保存任务设置" />
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

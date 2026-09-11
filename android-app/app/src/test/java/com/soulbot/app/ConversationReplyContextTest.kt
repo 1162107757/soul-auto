@@ -35,12 +35,42 @@ class ConversationReplyContextTest {
     }
 
     @Test
-    fun normalTurnsRequireAHook_butExplicitClosingsDoNot() {
-        assertTrue(ConversationReplyContext.needsEngagingHook(listOf("你多大呀")))
-        assertTrue(ConversationReplyContext.needsEngagingHook(listOf("你周末一般去哪玩？")))
-        assertTrue(ConversationReplyContext.needsEngagingHook(listOf("我刚下班")))
-        assertTrue(ConversationReplyContext.needsEngagingHook(listOf("不好喝")))
-        assertFalse(ConversationReplyContext.needsEngagingHook(listOf("我先睡了，晚安")))
+    fun questionsHaveCadence_insteadOfTurningEveryReplyIntoAnInterview() {
+        assertTrue(
+            ConversationReplyContext.shouldAskEngagingQuestion(
+                listOf("in" to "我刚下班"),
+                listOf("我刚下班"),
+            ),
+        )
+        assertFalse(
+            ConversationReplyContext.shouldAskEngagingQuestion(
+                listOf("out" to "你是刚下班吗", "in" to "对呀"),
+                listOf("对呀"),
+            ),
+        )
+        assertFalse(
+            ConversationReplyContext.shouldAskEngagingQuestion(
+                listOf("in" to "你多大呀"),
+                listOf("你多大呀"),
+            ),
+        )
+        assertTrue(
+            ConversationReplyContext.shouldAskEngagingQuestion(
+                listOf(
+                    "out" to "这雨真没停过",
+                    "in" to "是啊",
+                    "out" to "鞋都快晾不干了",
+                    "in" to "我也是",
+                ),
+                listOf("我也是"),
+            ),
+        )
+        assertFalse(
+            ConversationReplyContext.shouldAskEngagingQuestion(
+                listOf("in" to "我先睡了，晚安"),
+                listOf("我先睡了，晚安"),
+            ),
+        )
 
         assertTrue(ConversationReplyContext.hasEngagingHook("我25，你周末也经常去爬山吗"))
         assertFalse(ConversationReplyContext.hasEngagingHook("我25，你呢"))

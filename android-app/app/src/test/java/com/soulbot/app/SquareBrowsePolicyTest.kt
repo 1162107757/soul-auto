@@ -1,6 +1,7 @@
 package com.soulbot.app
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -19,5 +20,13 @@ class SquareBrowsePolicyTest {
         assertTrue(SquareBrowsePolicy.shouldRetryTransientFailure(0))
         assertTrue(SquareBrowsePolicy.shouldRetryTransientFailure(1))
         assertFalse(SquareBrowsePolicy.shouldRetryTransientFailure(2))
+    }
+
+    @Test
+    fun profileKey_ignoresDecorativeSpacingAndPunctuation() {
+        assertEquals(
+            SquareBrowsePolicy.profileKey(" 小 明。"),
+            SquareBrowsePolicy.profileKey("小明"),
+        )
     }
 }

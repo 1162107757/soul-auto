@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="?attr/colorSurface">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+        <include layout="@layout/view_toolbar" />
+        <androidx.core.widget.NestedScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:clipToPadding="false" android:fillViewport="true">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingStart="20dp" android:paddingTop="8dp" android:paddingEnd="20dp" android:paddingBottom="28dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="对方问起你的情况时，会优先按照这里的信息回答。未填写的内容不会要求模型编造。" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:textColor="?attr/colorOnSurfaceVariant" />
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:hint="性别">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSelfGender" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:maxLength="12" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="年龄">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSelfAge" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:maxLength="3" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="现居地区">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSelfRegion" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textPostalAddress" android:maxLength="40" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="星座">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSelfZodiac" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:maxLength="12" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="职业或工作状态">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSelfOccupation" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:maxLength="60" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.textfield.TextInputLayout style="@style/Widget.Material3.TextInputLayout.OutlinedBox" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:hint="其他真实资料" app:helperText="可填写家乡、兴趣、作息、性格等，只写愿意告诉别人的信息">
+                    <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSelfDetails" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="top|start" android:inputType="textMultiLine|textCapSentences" android:maxLength="1000" android:minHeight="120dp" android:maxLines="8" />
+                </com.google.android.material.textfield.TextInputLayout>
+                <com.google.android.material.button.MaterialButton android:id="@+id/btnSaveSelfProfile" style="@style/Widget.SoulBot.PrimaryButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="保存我的资料" />
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
