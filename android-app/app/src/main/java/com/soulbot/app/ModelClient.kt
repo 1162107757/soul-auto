@@ -1,5 +1,6 @@
 package com.soulbot.app
 
+import android.os.SystemClock
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,6 +23,9 @@ data class ModelCallResult(
     val error: String = "",
     val failureType: ModelFailureType = ModelFailureType.TEMPORARY,
     val retryAfterMs: Long = 0,
+    val httpStatus: Int? = null,
+    val responseBytes: Int = 0,
+    val durationMs: Long = 0,
 )
 
 object ModelClient {
@@ -72,6 +76,7 @@ object ModelClient {
         messages: List<Pair<String, String>>,
         timeoutMs: Long = 30_000L,
     ): ModelCallResult {
+        val startedAt = SystemClock.elapsedRealtime()
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", systemPrompt))
         for ((role, content) in messages) {
@@ -94,35 +99,52 @@ object ModelClient {
                 if (!response.isSuccessful) {
                     val error = parseError(response.code, responseBody)
                     lastError = error
-                    android.util.Log.d("SoulBot", "模型请求失败: $error")
                     return@use ModelCallResult(
                         content = null,
                         error = error,
                         failureType = classifyHttpFailure(response.code, responseBody),
                         retryAfterMs = parseRetryAfterMs(response.header("Retry-After")),
+                        httpStatus = response.code,
+                        responseBytes = responseBody.toByteArray(Charsets.UTF_8).size,
+                        durationMs = SystemClock.elapsedRealtime() - startedAt,
                     )
                 }
                 val content = runCatching { parseContent(JSONObject(responseBody)) }.getOrNull()
                 if (content == null) {
                     val error = "HTTP ${response.code}：响应中没有可用文本"
                     lastError = error
-                    ModelCallResult(null, error)
+                    ModelCallResult(
+                        content = null,
+                        error = error,
+                        httpStatus = response.code,
+                        responseBytes = responseBody.toByteArray(Charsets.UTF_8).size,
+                        durationMs = SystemClock.elapsedRealtime() - startedAt,
+                    )
                 } else {
                     lastError = ""
                     lastUsedModel = model
-                    ModelCallResult(content)
+                    ModelCallResult(
+                        content = content,
+                        httpStatus = response.code,
+                        responseBytes = responseBody.toByteArray(Charsets.UTF_8).size,
+                        durationMs = SystemClock.elapsedRealtime() - startedAt,
+                    )
                 }
             }
         } catch (e: Exception) {
             val error = "${e.javaClass.simpleName}：${e.message.orEmpty()}".take(180)
             lastError = error
-            android.util.Log.d("SoulBot", "模型请求异常: $error")
             val type = if (e is IllegalArgumentException) {
                 ModelFailureType.CONFIGURATION
             } else {
                 ModelFailureType.TEMPORARY
             }
-            ModelCallResult(null, error, type)
+            ModelCallResult(
+                content = null,
+                error = error,
+                failureType = type,
+                durationMs = SystemClock.elapsedRealtime() - startedAt,
+            )
         }
     }
 

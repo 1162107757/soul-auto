@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
@@ -25,6 +26,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.WindowInsets
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -47,11 +49,13 @@ class FloatingButtonService : Service() {
     private var collapsedActionIcon: ImageView? = null
     private var isCollapsed = false
     private var isDockedToEdge = true
+    private var dragInProgress = false
+    private var dragLayoutErrorReported = false
     private var dockSide = DockSide.RIGHT
     private var lastRenderedRunning: Boolean? = null
     private val handler = Handler(Looper.getMainLooper())
     private val autoCollapseRunnable = Runnable {
-        if (!isCollapsed && isDockedToEdge) setCollapsed(true)
+        if (!dragInProgress && !isCollapsed && isDockedToEdge) setCollapsed(true)
     }
 
     private val refreshRunnable = object : Runnable {
@@ -63,20 +67,62 @@ class FloatingButtonService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        RuntimeLog.record(
+            applicationContext,
+            "floating service start command; startId=$startId; flags=$flags",
+        )
+        return START_STICKY
+    }
 
     override fun onCreate() {
         super.onCreate()
+        RuntimeLog.record(applicationContext, "floating service created")
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         startForeground(1, buildNotification())
-        showFloat()
+        val shown = runCatching { showFloat() }
+        if (shown.isFailure) {
+            RuntimeLog.record(
+                applicationContext,
+                "floating window creation failed",
+                shown.exceptionOrNull(),
+            )
+            stopSelf()
+            return
+        }
+        RuntimeLog.record(applicationContext, "floating window shown")
         handler.post(refreshRunnable)
         if (Prefs.getTaskShouldRun(applicationContext)) {
-            SoulBotService.instance?.start()
+            val service = SoulBotService.instance
+            if (service == null) {
+                RuntimeLog.record(applicationContext, "floating restore deferred; accessibility service unavailable")
+            } else {
+                RuntimeLog.record(applicationContext, "floating restore requested; restarting automation")
+                service.start()
+            }
         }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun safeOverlayRegion(): UiRegion {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val metrics = windowManager.currentWindowMetrics
+            val bounds = metrics.bounds
+            val insets = metrics.windowInsets.getInsetsIgnoringVisibility(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            )
+            val safe = UiRegion(
+                bounds.left + insets.left,
+                bounds.top + insets.top,
+                bounds.right - insets.right,
+                bounds.bottom - insets.bottom,
+            )
+            if (safe.isValid) return safe
+        }
+        val metrics = resources.displayMetrics
+        return UiRegion(0, dp(24), metrics.widthPixels, metrics.heightPixels - dp(24))
+    }
 
     private fun buildNotification(): Notification {
         val channelId = "soulbot_fg"
@@ -242,9 +288,11 @@ class FloatingButtonService : Service() {
         root.addView(expanded)
         root.addView(collapsed, LinearLayout.LayoutParams(dp(56), dp(56)))
 
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
-        val lp = overlayParams(screenWidth - dp(80), screenHeight / 2 - dp(40))
+        val safeRegion = safeOverlayRegion()
+        val lp = overlayParams(
+            safeRegion.right - dp(80),
+            safeRegion.top + safeRegion.height / 2 - dp(40),
+        )
         windowManager.addView(root, lp)
 
         floatView = root
@@ -260,12 +308,13 @@ class FloatingButtonService : Service() {
         // Window overlays dispatch a tap to the deepest child under the finger.
         // Bind the whole information cluster as a drag surface. A plain tap keeps
         // the panel open and restarts its five-second edge timer.
-        listOf<View>(statusArea, dot, textColumn, statusTitle, nextAction).forEach { target ->
+        listOf<View>(root, expanded, statusArea, dot, textColumn, statusTitle, nextAction)
+            .forEach { target ->
             if (target !== statusArea) {
                 target.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             attachDragAndClick(target)
-        }
+            }
         attachDragAndClick(action) { toggle() }
         listOf<View>(collapsed, collapsedStateIcon).forEach { target ->
             if (target !== collapsed) {
@@ -275,7 +324,9 @@ class FloatingButtonService : Service() {
         }
 
         root.post {
-            lp.y = (screenHeight / 2 - root.height / 2).coerceAtLeast(dp(32))
+            val currentSafeRegion = safeOverlayRegion()
+            lp.y = (currentSafeRegion.centerY - root.height / 2)
+                .coerceAtLeast(currentSafeRegion.top)
             dockSide = DockSide.RIGHT
             isDockedToEdge = true
             snapToEdge()
@@ -306,6 +357,8 @@ class FloatingButtonService : Service() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     cancelAutoCollapse()
+                    dragInProgress = true
+                    dragLayoutErrorReported = false
                     initialX = lp.x
                     initialY = lp.y
                     touchX = event.rawX
@@ -321,19 +374,33 @@ class FloatingButtonService : Service() {
                         moved = true
                     }
                     if (moved) {
-                        val screenWidth = resources.displayMetrics.widthPixels
-                        val screenHeight = resources.displayMetrics.heightPixels
-                        lp.x = (initialX + dx.toInt()).coerceIn(-root.width + dp(48), screenWidth - dp(48))
-                        lp.y = (initialY + dy.toInt()).coerceIn(
-                            dp(24),
-                            (screenHeight - root.height - dp(24)).coerceAtLeast(dp(24)),
+                        val safeRegion = safeOverlayRegion()
+                        lp.x = (initialX + dx.toInt()).coerceIn(
+                            safeRegion.left - root.width + dp(48),
+                            safeRegion.right - dp(48),
                         )
-                        windowManager.updateViewLayout(root, lp)
+                        lp.y = (initialY + dy.toInt()).coerceIn(
+                            safeRegion.top,
+                            (safeRegion.bottom - root.height).coerceAtLeast(safeRegion.top),
+                        )
+                        try {
+                            windowManager.updateViewLayout(root, lp)
+                        } catch (error: RuntimeException) {
+                            if (!dragLayoutErrorReported) {
+                                dragLayoutErrorReported = true
+                                RuntimeLog.record(
+                                    applicationContext,
+                                    "floating window drag layout update failed",
+                                    error,
+                                )
+                            }
+                        }
                     }
                     true
                 }
 
                 MotionEvent.ACTION_UP -> {
+                    dragInProgress = false
                     if (moved) {
                         finishDrag()
                     } else if (onClick != null) {
@@ -345,11 +412,13 @@ class FloatingButtonService : Service() {
                 }
 
                 MotionEvent.ACTION_CANCEL -> {
+                    dragInProgress = false
                     if (moved) {
                         finishDrag()
-                    } else if (!isCollapsed) {
-                        scheduleAutoCollapse()
                     }
+                    // A system gesture or a temporary window-layout change may cancel
+                    // touch delivery. Keep the panel expanded so the user's drag does
+                    // not look like it got stuck and disappeared.
                     true
                 }
 
@@ -359,14 +428,15 @@ class FloatingButtonService : Service() {
     }
 
     private fun finishDrag() {
+        dragInProgress = false
         val root = floatView ?: return
         val lp = windowParams ?: return
         if (root.width == 0) return
 
-        val screenWidth = resources.displayMetrics.widthPixels
+        val safeRegion = safeOverlayRegion()
         val edgeSlop = dp(8)
-        val leftGap = lp.x
-        val rightGap = screenWidth - (lp.x + root.width)
+        val leftGap = lp.x - safeRegion.left
+        val rightGap = safeRegion.right - (lp.x + root.width)
 
         when {
             leftGap <= edgeSlop -> {
@@ -401,21 +471,21 @@ class FloatingButtonService : Service() {
         val root = floatView ?: return
         val lp = windowParams ?: return
         if (root.width == 0) return
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
+        val safeRegion = safeOverlayRegion()
         val horizontalPadding = dp(8)
-        val verticalPadding = dp(24)
         lp.x = lp.x.coerceIn(
-            horizontalPadding,
-            (screenWidth - root.width - horizontalPadding).coerceAtLeast(horizontalPadding),
+            safeRegion.left + horizontalPadding,
+            (safeRegion.right - root.width - horizontalPadding)
+                .coerceAtLeast(safeRegion.left + horizontalPadding),
         )
         lp.y = lp.y.coerceIn(
-            verticalPadding,
-            (screenHeight - root.height - verticalPadding).coerceAtLeast(verticalPadding),
+            safeRegion.top,
+            (safeRegion.bottom - root.height).coerceAtLeast(safeRegion.top),
         )
         try {
             windowManager.updateViewLayout(root, lp)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RuntimeLog.record(applicationContext, "floating free-position clamp failed", error)
         }
     }
 
@@ -423,27 +493,27 @@ class FloatingButtonService : Service() {
         val root = floatView ?: return
         val lp = windowParams ?: return
         if (root.width == 0) return
-        val screenWidth = resources.displayMetrics.widthPixels
-        val screenHeight = resources.displayMetrics.heightPixels
+        val safeRegion = safeOverlayRegion()
         lp.x = when {
-            isCollapsed && dockSide == DockSide.LEFT -> -dp(8)
-            isCollapsed -> screenWidth - root.width + dp(8)
-            dockSide == DockSide.LEFT -> dp(8)
-            else -> screenWidth - root.width - dp(8)
+            isCollapsed && dockSide == DockSide.LEFT -> safeRegion.left - dp(8)
+            isCollapsed -> safeRegion.right - root.width + dp(8)
+            dockSide == DockSide.LEFT -> safeRegion.left + dp(8)
+            else -> safeRegion.right - root.width - dp(8)
         }
         lp.y = lp.y.coerceIn(
-            dp(24),
-            (screenHeight - root.height - dp(24)).coerceAtLeast(dp(24)),
+            safeRegion.top,
+            (safeRegion.bottom - root.height).coerceAtLeast(safeRegion.top),
         )
         try {
             windowManager.updateViewLayout(root, lp)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RuntimeLog.record(applicationContext, "floating edge snap failed", error)
         }
     }
 
     private fun scheduleAutoCollapse() {
         handler.removeCallbacks(autoCollapseRunnable)
-        if (!isCollapsed && isDockedToEdge) {
+        if (!dragInProgress && !isCollapsed && isDockedToEdge) {
             handler.postDelayed(autoCollapseRunnable, 5000)
         }
     }
@@ -456,7 +526,10 @@ class FloatingButtonService : Service() {
         if (isCollapsed == collapsed) return
         val root = floatView ?: return
         cancelAutoCollapse()
-        android.util.Log.d("SoulBot", "悬浮窗折叠状态 -> $collapsed")
+        RuntimeLog.record(
+            applicationContext,
+            "floating panel state changed; collapsed=$collapsed; docked=$isDockedToEdge; side=${dockSide.name}",
+        )
         root.animate().cancel()
         root.animate()
             .alpha(0.65f)
@@ -483,6 +556,7 @@ class FloatingButtonService : Service() {
     private fun toggle() {
         val service = SoulBotService.instance
         if (service == null) {
+            RuntimeLog.record(applicationContext, "floating toggle ignored; accessibility service unavailable")
             updateStatusPanel()
             return
         }
@@ -536,12 +610,14 @@ class FloatingButtonService : Service() {
     }
 
     override fun onDestroy() {
+        RuntimeLog.record(applicationContext, "floating service destroying")
         handler.removeCallbacks(refreshRunnable)
         handler.removeCallbacks(autoCollapseRunnable)
         floatView?.let {
             try {
                 windowManager.removeView(it)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                RuntimeLog.record(applicationContext, "floating window removal failed", error)
             }
         }
         floatView = null
@@ -553,7 +629,19 @@ class FloatingButtonService : Service() {
         actionTv = null
         statusDot = null
         collapsedActionIcon = null
+        dragInProgress = false
         super.onDestroy()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        RuntimeLog.record(
+            applicationContext,
+            "device configuration changed; orientation=${newConfig.orientation}; screen=${resources.displayMetrics.widthPixels}x${resources.displayMetrics.heightPixels}",
+        )
+        floatView?.post {
+            if (isDockedToEdge) snapToEdge() else clampFreePosition()
+        }
     }
 
     private class ActionIconDrawable(

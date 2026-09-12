@@ -34,21 +34,38 @@ object ModelRouter {
                 waitSeconds != null -> "所有模型正在冷却，${waitSeconds} 秒后可用"
                 else -> "所有模型都需要修复配置"
             }
+            RuntimeLog.record(
+                context,
+                "model route unavailable; configured=${endpoints.size}; runnable=${enabled.size}; cooldownSeconds=${waitSeconds ?: 0}",
+            )
             onProgress(lastError, (waitSeconds ?: 0) * 1000)
             return null
         }
+
+        val inputChars = messages.sumOf { it.second.length }
+        RuntimeLog.record(
+            context,
+            "model route started; candidates=${candidates.size}; messages=${messages.size}; inputChars=$inputChars; budgetMs=$MAX_GENERATION_WAIT_MS",
+        )
 
         for ((candidateIndex, endpoint) in candidates.withIndex()) {
             val elapsed = System.currentTimeMillis() - startedAt
             val remaining = MAX_GENERATION_WAIT_MS - elapsed
             if (remaining < MIN_CALL_BUDGET_MS) {
                 lastError = "本轮模型调用已超过 75 秒"
+                RuntimeLog.record(
+                    context,
+                    "model route budget exhausted; elapsedMs=$elapsed; remainingMs=$remaining",
+                )
                 break
             }
             val priority = endpoints.indexOfFirst { it.id == endpoint.id } + 1
             val timeout = minOf(MAX_SINGLE_CALL_MS, remaining)
             onProgress("正在调用 P$priority：${endpoint.shortLabel()}", timeout)
-            RuntimeLog.record(context, "model attempt; priority=$priority; endpoint=${endpoint.displayName}; model=${endpoint.model}")
+            RuntimeLog.record(
+                context,
+                "model attempt; priority=$priority; endpointId=${endpoint.id}; model=${endpoint.model}; timeoutMs=$timeout",
+            )
             val result = ModelClient.chatOnce(
                 apiKey = endpoint.apiKey,
                 baseUrl = endpoint.baseUrl,
@@ -62,6 +79,10 @@ object ModelRouter {
                 lastError = ""
                 lastUsedEndpointId = endpoint.id
                 lastUsedLabel = endpoint.shortLabel()
+                RuntimeLog.record(
+                    context,
+                    "model succeeded; priority=$priority; endpointId=${endpoint.id}; http=${result.httpStatus ?: 0}; durationMs=${result.durationMs}; responseBytes=${result.responseBytes}; outputChars=${result.content.length}",
+                )
                 return result.content
             }
 
@@ -70,12 +91,16 @@ object ModelRouter {
             val hasNext = candidateIndex < candidates.lastIndex
             RuntimeLog.record(
                 context,
-                "model failed; priority=$priority; endpoint=${endpoint.displayName}; type=${result.failureType}; error=${lastError.take(120)}",
+                "model failed; priority=$priority; endpointId=${endpoint.id}; type=${result.failureType}; http=${result.httpStatus ?: 0}; durationMs=${result.durationMs}; retryAfterMs=${result.retryAfterMs}; hasNext=$hasNext",
             )
             if (hasNext) {
                 val next = candidates[candidateIndex + 1]
                 val nextPriority = endpoints.indexOfFirst { it.id == next.id } + 1
                 onProgress("P$priority 失败：${lastError.take(22)}，切换 P$nextPriority", SWITCH_DELAY_MS)
+                RuntimeLog.record(
+                    context,
+                    "model failover scheduled; fromPriority=$priority; toPriority=$nextPriority; delayMs=$SWITCH_DELAY_MS",
+                )
                 waitBeforeNext(SWITCH_DELAY_MS)
             }
         }
@@ -85,11 +110,15 @@ object ModelRouter {
     fun markAccepted(context: Context) {
         lastUsedEndpointId.takeIf(String::isNotBlank)?.let {
             ModelEndpointPrefs.recordSuccess(context, it, accepted = true)
+            RuntimeLog.record(context, "model reply accepted; endpointId=$it")
         }
     }
 
     fun markQualityRejected(context: Context): Boolean =
         lastUsedEndpointId.takeIf(String::isNotBlank)
-            ?.let { ModelEndpointPrefs.recordQualityRejected(context, it) }
+            ?.let {
+                RuntimeLog.record(context, "model reply quality rejected; endpointId=$it")
+                ModelEndpointPrefs.recordQualityRejected(context, it)
+            }
             ?: false
 }

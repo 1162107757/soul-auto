@@ -2,4 +2,22 @@
     <string name="app_name">SoulBot</string>
     <string name="main_title">SoulBot 自动助手</string>
     <string name="accessibility_service_label">SoulBot 自动助手</string>
+    <string name="device_diagnostics_title">设备适配与诊断</string>
+    <string name="device_diagnostics_status_default">设备参数已适配</string>
+    <string name="device_diagnostics_status_stop_task">请先停止自动任务再检测</string>
+    <string name="device_diagnostics_status_accessibility">需要开启无障碍服务</string>
+    <string name="device_diagnostics_status_waiting">设备参数已适配，等待检测 Soul 页面</string>
+    <string name="device_diagnostics_status_count">已检测 %1$d/%2$d 项页面能力</string>
+    <string name="device_diagnostics_intro">自动化优先使用控件节点；滑动和坐标兜底会限制在 Soul 的有效窗口或列表区域内。</string>
+    <string name="device_diagnostics_device_section">本机参数</string>
+    <string name="device_diagnostics_latest_section">最近一次 Soul 页面</string>
+    <string name="device_diagnostics_capability_section">累计检测能力</string>
+    <string name="device_diagnostics_action_section">检测操作</string>
+    <string name="device_diagnostics_action_help">打开 Soul 后依次停留在聊天列表、任一聊天、星球匹配、同城广场等页面。无障碍服务会被动记录控件，不会启动自动任务。</string>
+    <string name="device_diagnostics_open_soul">打开 Soul 检测当前页面</string>
+    <string name="device_diagnostics_refresh">刷新检测结果</string>
+    <string name="device_diagnostics_copy">复制诊断信息</string>
+    <string name="device_diagnostics_reset">重置本机适配记录</string>
+    <string name="device_diagnostics_capabilities_format">%1$s\n%2$s</string>
+    <string name="device_diagnostics_dashboard_summary">%1$d×%2$d · %3$d dpi · 已检测 %4$d/%5$d 项</string>
 </resources>

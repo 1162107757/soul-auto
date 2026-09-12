@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvProfileSummary: TextView
     private lateinit var tvReplySummary: TextView
     private lateinit var tvDataSummary: TextView
+    private lateinit var tvDeviceSummary: TextView
     private lateinit var memoryDb: ConversationMemoryDatabase
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
@@ -55,6 +56,7 @@ class MainActivity : AppCompatActivity() {
         tvProfileSummary = findViewById(R.id.tvProfileSummary)
         tvReplySummary = findViewById(R.id.tvReplySummary)
         tvDataSummary = findViewById(R.id.tvDataSummary)
+        tvDeviceSummary = findViewById(R.id.tvDeviceSummary)
 
         findViewById<android.view.View>(R.id.rowTaskSettings).setOnClickListener {
             open(TaskSettingsActivity::class.java)
@@ -70,6 +72,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<android.view.View>(R.id.rowDataBackup).setOnClickListener {
             open(DataBackupActivity::class.java)
+        }
+        findViewById<android.view.View>(R.id.rowDeviceDiagnostics).setOnClickListener {
+            open(DeviceDiagnosticsActivity::class.java)
         }
 
         btnAccessibility.setOnClickListener {
@@ -87,6 +92,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 startService(intent)
             }
+            RuntimeLog.record(applicationContext, "floating control launch requested from dashboard")
             Snackbar.make(btnPrimary, "悬浮控制已启动", Snackbar.LENGTH_SHORT).show()
             refreshDashboard()
         }
@@ -162,6 +168,16 @@ class MainActivity : AppCompatActivity() {
         val memoryState = if (Prefs.getContactMemoryEnabled(this)) "记忆引用开启" else "记忆引用关闭"
         tvReplySummary.text = "$styleState · $memoryState"
         tvDataSummary.text = "${memoryDb.contactCount()} 位联系人 · ${memoryDb.messageCount()} 条消息"
+        val device = DeviceProfileSnapshot.capture(this)
+        val compatibility = DeviceCompatibilityStore.read(this)
+        tvDeviceSummary.text = getString(
+            R.string.device_diagnostics_dashboard_summary,
+            device.displayWidthPx,
+            device.displayHeightPx,
+            device.densityDpi,
+            compatibility.observedCapabilities.size,
+            SoulUiCapability.entries.size,
+        )
     }
 
     private fun <T> open(activity: Class<T>) = startActivity(Intent(this, activity))

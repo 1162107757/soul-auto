@@ -2,16 +2,6 @@ package com.soulbot.app
 
 import kotlin.math.abs
 
-data class UiRegion(
-    val left: Int,
-    val top: Int,
-    val right: Int,
-    val bottom: Int,
-) {
-    val width: Int get() = (right - left).coerceAtLeast(0)
-    val height: Int get() = (bottom - top).coerceAtLeast(0)
-}
-
 data class TranscriptCandidate(
     val text: String,
     val bounds: UiRegion,
