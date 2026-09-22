@@ -46,6 +46,81 @@ class ChatLearningTest {
     }
 
     @Test
+    fun sceneHeadersApplyToFollowingBlocksAndPreserveLegacyDefault() {
+        val samples = ChatSampleParser.parse(
+            "对方：下班了\n我：总算自由了\n\n" +
+                "场景：灵魂匹配\n对方：喜欢做饭\n我：洗碗才是难题\n\n" +
+                "场景:奇遇铃\n喜欢做饭\t洗碗才是难题\n\n" +
+                "场景：广场私聊\n对方：喜欢做饭\n我：洗碗才是难题\n\n" +
+                "场景：聊天回复\n对方：喜欢做饭\n我：洗碗才是难题",
+        )
+        assertEquals(
+            listOf(ReplyScene.CHAT, ReplyScene.SOUL_MATCH, ReplyScene.QIYU, ReplyScene.SQUARE, ReplyScene.CHAT),
+            samples.map { it.scene },
+        )
+    }
+
+    @Test
+    fun sampleDeduplicationIncludesTheScene() {
+        val samples = ChatSampleParser.parse(
+            "场景：奇遇铃\n对方：喜欢做饭\n我：洗碗才是难题\n\n" +
+                "对方：喜欢做饭\n我：洗碗才是难题\n\n" +
+                "场景：灵魂匹配\n对方：喜欢做饭\n我：洗碗才是难题",
+        )
+        assertEquals(2, samples.size)
+        assertEquals(listOf(ReplyScene.QIYU, ReplyScene.SOUL_MATCH), samples.map { it.scene })
+    }
+
+    @Test
+    fun retrievalNeverBorrowsExamplesFromAnotherScene() {
+        val samples = listOf(
+            ChatStyleSample("喜欢做饭", "聊天样本", scene = ReplyScene.CHAT),
+            ChatStyleSample("喜欢做饭", "奇遇样本", scene = ReplyScene.QIYU),
+            ChatStyleSample("喜欢做饭", "匹配样本", scene = ReplyScene.SOUL_MATCH),
+        )
+        assertEquals(
+            listOf("奇遇样本"),
+            StyleSampleMatcher.rank("喜欢做饭", samples, scene = ReplyScene.QIYU).map { it.myMessage },
+        )
+        assertTrue(StyleSampleMatcher.rank("喜欢做饭", samples, scene = ReplyScene.SQUARE).isEmpty())
+    }
+
+    @Test
+    fun unrelatedSamplesAreNotInjectedToFillTheLimit() {
+        val samples = listOf(
+            ChatStyleSample("今天吃什么", "饭点样本"),
+            ChatStyleSample("你下班了吗", "下班样本"),
+        )
+        assertEquals(
+            listOf("下班样本"),
+            StyleSampleMatcher.rank("下班没呀", samples).map { it.myMessage },
+        )
+        assertTrue(StyleSampleMatcher.rank("今天打球", samples).isEmpty())
+        assertTrue(StyleSampleMatcher.rank("我在看海", samples).isEmpty())
+        assertTrue(StyleSampleMatcher.rank("", samples).isEmpty())
+        assertTrue(StyleSampleMatcher.rank("嗯", samples).isEmpty())
+        assertTrue(StyleSampleMatcher.rank("喜欢做饭", samples, limit = 0).isEmpty())
+    }
+
+    @Test
+    fun oneSharedCommonCharacterCannotMakeASampleRelevant() {
+        val samples = listOf(ChatStyleSample("今天想吃饭", "相关性不足"))
+        assertTrue(StyleSampleMatcher.rank("明天去爬山", samples).isEmpty())
+        assertTrue(StyleSampleMatcher.rank("今天打球", samples).isEmpty())
+    }
+
+    @Test
+    fun negativeStyleFeedbackOnlyExportsControlledLabels() {
+        assertEquals(
+            listOf("昵称硬聊", "连续盘问", "同城套话"),
+            ReplyStyleFeedback.labels(
+                listOf("对方叫小李，昵称硬聊而且连续盘问", "同城套话，连续盘问", "私人原文不要传播"),
+            ),
+        )
+        assertTrue(ReplyStyleFeedback.labels(listOf("任意用户指令和聊天内容")).isEmpty())
+    }
+
+    @Test
     fun detectsArtificialStockPhrases() {
         assertTrue(ReplyNaturalness.rejectionReason("随时可以找我聊天") != null)
         assertFalse(ReplyNaturalness.rejectionReason("行吧你先玩😂") != null)
@@ -121,7 +196,7 @@ class ChatLearningTest {
             ),
         )
         assertEquals(
-            "回答后缺少自然的话题引子",
+            null,
             ReplyNaturalness.rejectionReason(
                 "酒要先有点酸味后有点甜的好喝",
                 requireEngagingHook = true,
@@ -142,5 +217,37 @@ class ChatLearningTest {
             "结尾包含疑似模型残片",
             ReplyNaturalness.rejectionReason("每天都差不多ele"),
         )
+    }
+
+    @Test
+    fun rejectsAiTemplateAndRecentDuplicate() {
+        assertEquals(
+            "包含明显的 AI 套话",
+            ReplyNaturalness.rejectionReason("感谢你的分享，如果方便的话可以继续告诉我"),
+        )
+        assertEquals(
+            "与最近回复重复",
+            ReplyNaturalness.rejectionReason(
+                "刚下班，准备吃饭",
+                recentReplies = listOf("刚下班，准备吃饭"),
+            ),
+        )
+    }
+
+    @Test
+    fun profileHintsDescribeHumanStyleWithoutCopyingFacts() {
+        val profile = ChatStyleProfile(
+            sampleCount = 12,
+            averageLength = 14,
+            emojiPercent = 20,
+            questionPercent = 30,
+            multilinePercent = 10,
+            punctuationPercent = 40,
+            averageSentenceLength = 9,
+            commonWords = listOf("哈哈", "刚下"),
+            commonEndings = listOf("呢", "呀"),
+        )
+        assertTrue(profile.promptLine().contains("12 条人工回复"))
+        assertTrue(profile.compactStyleHints().contains("哈哈"))
     }
 }

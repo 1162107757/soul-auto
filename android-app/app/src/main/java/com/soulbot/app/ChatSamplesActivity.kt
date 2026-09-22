@@ -21,8 +21,12 @@ class ChatSamplesActivity : BaseSettingsActivity() {
                 return@setOnClickListener
             }
             val added = learningDb.importSamples(parsed)
-            samples.text.clear()
-            showMessage("已新增 $added 条聊天样本")
+            if (added == 0) {
+                showMessage("没有新增样本，可能已导入相同内容", Snackbar.LENGTH_LONG)
+            } else {
+                samples.text.clear()
+                showMessage("已按场景新增 $added 条样本")
+            }
         }
         findViewById<MaterialButton>(R.id.btnClearStyle).setOnClickListener {
             confirmClear(

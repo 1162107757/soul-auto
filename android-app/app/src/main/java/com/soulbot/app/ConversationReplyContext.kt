@@ -27,7 +27,7 @@ object ConversationReplyContext {
     }
 
     private val questionClues = listOf(
-        "吗", "嘛", "么", "什么", "为啥", "为什么", "怎么", "咋", "哪里", "哪儿",
+        "什么", "为啥", "为什么", "怎么", "咋", "哪里", "哪儿",
         "哪个", "几岁", "多大", "多少", "有没有", "是不是", "要不要", "能不能",
         "会不会", "喜不喜欢", "做什么", "干嘛", "干什么", "怎么样",
     )
@@ -48,7 +48,9 @@ object ConversationReplyContext {
         if (clean.isEmpty()) return false
         if ('?' in clean || '？' in clean) return true
         val comparable = comparableText(clean)
-        return questionClues.any { clue -> comparable.contains(comparableText(clue)) }
+        if (comparable.endsWith("吗") || comparable.endsWith("么")) return true
+        val statement = comparable.replace(Regex("(?:没什么|没啥|没怎么|不知道怎么|不知怎么|不管怎么|无论怎么|想怎么|怎么都|什么都)"), "")
+        return questionClues.any { clue -> statement.contains(clue) }
     }
 
     fun isConversationClosing(text: String): Boolean {
@@ -56,30 +58,26 @@ object ConversationReplyContext {
         return closingClues.any { comparable.contains(comparableText(it)) }
     }
 
-    /**
-     * Questions are conversation tools, not a mandatory suffix. A first statement
-     * can get one natural hook, then at least two outgoing turns must pass before
-     * another question. Direct questions from the other person are answered without
-     * immediately throwing another question back.
-     */
-    fun shouldAskEngagingQuestion(
+    /** Contextual advice only: never a schedule that forces a question. */
+    fun responseGuidance(
         thread: List<Pair<String, String>>,
         focusIncoming: List<String>,
-    ): Boolean {
-        val latest = focusIncoming.lastOrNull(String::isNotBlank) ?: return false
-        if (isConversationClosing(latest) || asksQuestion(latest)) return false
-
-        val recentOutgoing = thread.filter { it.first == "out" }.takeLast(3).map { it.second }
-        if (recentOutgoing.takeLast(2).any(::asksQuestion)) return false
-        if (recentOutgoing.isEmpty()) return true
-        if (isLowInformation(latest)) return true
-        return recentOutgoing.size >= 2 && recentOutgoing.none(::asksQuestion)
+    ): String {
+        val latest = focusIncoming.lastOrNull(String::isNotBlank).orEmpty()
+        if (isConversationClosing(latest)) return "对方正在收尾，简短回应即可，不开启新话题或追加问题。"
+        if (focusIncoming.any(::asksQuestion)) return "先回答对方实际问的问题；回答完整即可，不附带对等盘问。"
+        val recentOutgoing = thread.filter { it.first == "out" }.takeLast(2).map { it.second }
+        if (recentOutgoing.any(::asksQuestion)) {
+            return "最近已经问过问题，优先用具体反应或看法接住回答，给对方自由展开的空间，不再连续盘问。"
+        }
+        return "可以接一个细节、表达看法，确有必要时才问一个容易回答的问题；陈述句也可以自然接话，不必凑问号。"
     }
 
     fun hasEngagingHook(reply: String): Boolean {
-        if (!asksQuestion(reply)) return false
         val comparable = comparableText(reply)
-        return genericHookEndings.none(comparable::endsWith)
+        if (isLowInformation(reply) || genericHookEndings.any(comparable::endsWith)) return false
+        // A grounded observation can invite a reply without being a question.
+        return asksQuestion(reply) || comparable.length >= 8
     }
 
     fun analyze(

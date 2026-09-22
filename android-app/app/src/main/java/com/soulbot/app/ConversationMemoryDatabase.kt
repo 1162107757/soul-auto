@@ -40,6 +40,14 @@ class ConversationMemoryDatabase(context: Context) :
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
 
+    fun hasHistory(contact: String): Boolean {
+        val clean = cleanContact(contact) ?: return false
+        readableDatabase.rawQuery(
+            "SELECT 1 FROM conversation_messages WHERE contact=? LIMIT 1",
+            arrayOf(clean),
+        ).use { return it.moveToFirst() }
+    }
+
     fun syncVisibleThread(
         contact: String,
         visibleThread: List<Pair<String, String>>,

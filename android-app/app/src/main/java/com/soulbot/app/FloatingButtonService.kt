@@ -53,6 +53,7 @@ class FloatingButtonService : Service() {
     private var dragLayoutErrorReported = false
     private var dockSide = DockSide.RIGHT
     private var lastRenderedRunning: Boolean? = null
+    private var repositionPending = false
     private val handler = Handler(Looper.getMainLooper())
     private val autoCollapseRunnable = Runnable {
         if (!dragInProgress && !isCollapsed && isDockedToEdge) setCollapsed(true)
@@ -357,6 +358,11 @@ class FloatingButtonService : Service() {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     cancelAutoCollapse()
+                    // A tap/drag must always win over a pending collapse animation.
+                    // Otherwise the old animation end callback can hide the panel
+                    // again after the user has already touched it.
+                    root.animate().cancel()
+                    root.alpha = 1f
                     dragInProgress = true
                     dragLayoutErrorReported = false
                     initialX = lp.x
@@ -530,27 +536,50 @@ class FloatingButtonService : Service() {
             applicationContext,
             "floating panel state changed; collapsed=$collapsed; docked=$isDockedToEdge; side=${dockSide.name}",
         )
+        // Do not animate the layout transition. Window overlays can receive a
+        // touch while an animation is running; the old end callback could then
+        // apply stale coordinates and make the collapsed handle untappable.
         root.animate().cancel()
-        root.animate()
-            .alpha(0.65f)
-            .setDuration(80)
-            .withEndAction {
-                isCollapsed = collapsed
-                expandedView?.visibility = if (collapsed) View.GONE else View.VISIBLE
-                collapsedView?.visibility = if (collapsed) View.VISIBLE else View.GONE
-                root.requestLayout()
-                root.post {
-                    if (isDockedToEdge) {
-                        snapToEdge()
-                    } else {
-                        clampFreePosition()
-                    }
-                    root.animate().cancel()
-                    root.animate().alpha(1f).setDuration(120).start()
-                    if (!collapsed) scheduleAutoCollapse()
-                }
+        root.alpha = 1f
+        isCollapsed = collapsed
+        expandedView?.visibility = if (collapsed) View.GONE else View.VISIBLE
+        collapsedView?.visibility = if (collapsed) View.VISIBLE else View.GONE
+        repositionAfterLayout()
+        if (!collapsed) scheduleAutoCollapse()
+    }
+
+    /** Recalculate the overlay position only after WRAP_CONTENT has been remeasured. */
+    private fun repositionAfterLayout() {
+        val root = floatView ?: return
+        if (repositionPending) return
+        repositionPending = true
+        root.requestLayout()
+        root.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                view: View,
+                left: Int,
+                top: Int,
+                right: Int,
+                bottom: Int,
+                oldLeft: Int,
+                oldTop: Int,
+                oldRight: Int,
+                oldBottom: Int,
+            ) {
+                view.removeOnLayoutChangeListener(this)
+                repositionPending = false
+                if (floatView !== view || view.width <= 0 || view.height <= 0) return
+                if (isDockedToEdge) snapToEdge() else clampFreePosition()
             }
-            .start()
+        })
+        // A visibility change may not produce another layout pass on some OEMs.
+        // Keep a one-frame fallback so the handle is never left at stale x/y.
+        root.postOnAnimation {
+            repositionPending = false
+            if (floatView === root && root.width > 0 && root.height > 0) {
+                if (isDockedToEdge) snapToEdge() else clampFreePosition()
+            }
+        }
     }
 
     private fun toggle() {
@@ -630,6 +659,7 @@ class FloatingButtonService : Service() {
         statusDot = null
         collapsedActionIcon = null
         dragInProgress = false
+        repositionPending = false
         super.onDestroy()
     }
 

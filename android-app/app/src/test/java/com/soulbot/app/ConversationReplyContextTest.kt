@@ -35,27 +35,27 @@ class ConversationReplyContextTest {
     }
 
     @Test
-    fun questionsHaveCadence_insteadOfTurningEveryReplyIntoAnInterview() {
+    fun questionsAreOptional_notScheduledAfterSeveralTurns() {
         assertTrue(
-            ConversationReplyContext.shouldAskEngagingQuestion(
+            ConversationReplyContext.responseGuidance(
                 listOf("in" to "我刚下班"),
                 listOf("我刚下班"),
-            ),
-        )
-        assertFalse(
-            ConversationReplyContext.shouldAskEngagingQuestion(
-                listOf("out" to "你是刚下班吗", "in" to "对呀"),
-                listOf("对呀"),
-            ),
-        )
-        assertFalse(
-            ConversationReplyContext.shouldAskEngagingQuestion(
-                listOf("in" to "你多大呀"),
-                listOf("你多大呀"),
-            ),
+            ).contains("不必凑问号"),
         )
         assertTrue(
-            ConversationReplyContext.shouldAskEngagingQuestion(
+            ConversationReplyContext.responseGuidance(
+                listOf("out" to "你是刚下班吗", "in" to "对呀"),
+                listOf("对呀"),
+            ).contains("不再连续盘问"),
+        )
+        assertTrue(
+            ConversationReplyContext.responseGuidance(
+                listOf("in" to "你多大呀"),
+                listOf("你多大呀"),
+            ).contains("先回答"),
+        )
+        assertTrue(
+            ConversationReplyContext.responseGuidance(
                 listOf(
                     "out" to "这雨真没停过",
                     "in" to "是啊",
@@ -63,18 +63,28 @@ class ConversationReplyContextTest {
                     "in" to "我也是",
                 ),
                 listOf("我也是"),
-            ),
+            ).contains("不必凑问号"),
         )
-        assertFalse(
-            ConversationReplyContext.shouldAskEngagingQuestion(
+        assertTrue(
+            ConversationReplyContext.responseGuidance(
                 listOf("in" to "我先睡了，晚安"),
                 listOf("我先睡了，晚安"),
-            ),
+            ).contains("收尾"),
         )
 
         assertTrue(ConversationReplyContext.hasEngagingHook("我25，你周末也经常去爬山吗"))
         assertFalse(ConversationReplyContext.hasEngagingHook("我25，你呢"))
         assertFalse(ConversationReplyContext.hasEngagingHook("那今天上班没？"))
         assertFalse(ConversationReplyContext.hasEngagingHook("我25"))
+        assertTrue(ConversationReplyContext.hasEngagingHook("最烦吃饱以后还得面对一池子碗"))
+    }
+
+    @Test
+    fun ordinaryStatementsContainingQuestionCharactersAreNotQuestions() {
+        assertFalse(ConversationReplyContext.asksQuestion("这么近"))
+        assertFalse(ConversationReplyContext.asksQuestion("没什么，刚下班"))
+        assertFalse(ConversationReplyContext.asksQuestion("不知道怎么说，反正挺开心"))
+        assertTrue(ConversationReplyContext.asksQuestion("这家店有什么好吃的"))
+        assertTrue(ConversationReplyContext.asksQuestion("现在下班了吗"))
     }
 }
