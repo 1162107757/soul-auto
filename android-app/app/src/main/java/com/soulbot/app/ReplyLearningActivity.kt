@@ -38,6 +38,9 @@ class ReplyLearningActivity : BaseSettingsActivity() {
         findViewById<android.view.View>(R.id.rowChatSamples).setOnClickListener {
             startActivity(Intent(this, ChatSamplesActivity::class.java))
         }
+        findViewById<android.view.View>(R.id.rowChatReplay).setOnClickListener {
+            startActivity(Intent(this, ChatReplayActivity::class.java))
+        }
         findViewById<android.view.View>(R.id.btnFeedbackLike).setOnClickListener {
             readFeedbackDraft()?.let { submitFeedback(it, liked = true) }
         }

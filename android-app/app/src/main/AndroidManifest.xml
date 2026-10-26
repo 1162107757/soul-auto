@@ -31,6 +31,8 @@
         <activity android:name=".ModelEndpointEditActivity" android:exported="false" />
         <activity android:name=".ProfileSettingsActivity" android:exported="false" />
         <activity android:name=".ReplyLearningActivity" android:exported="false" />
+        <activity android:name=".ChatReplayActivity" android:exported="false" />
+        <activity android:name=".ReplayEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ChatSamplesActivity" android:exported="false" />
         <activity android:name=".DataBackupActivity" android:exported="false" />
         <activity android:name=".DeviceDiagnosticsActivity" android:exported="false" />

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Existing Material language; a focused three-step flow keeps the learning settings page short. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/replayEditorRoot" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="?attr/colorSurface">
+    <include layout="@layout/view_toolbar" />
+    <TextView android:id="@+id/replayStepTitle" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingHorizontal="20dp" android:paddingTop="12dp" android:paddingBottom="8dp"
+        android:textAppearance="@style/TextAppearance.SoulBot.Section" />
+    <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/replayEditorProgress"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:indeterminate="true" android:visibility="gone" />
+    <TextView android:id="@+id/replayEditorStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingHorizontal="20dp" android:paddingVertical="8dp" android:accessibilityLiveRegion="polite"
+        android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:visibility="gone" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/replayCancel" style="@style/Widget.SoulBot.OutlinedButton"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginHorizontal="20dp"
+        android:text="取消生成" android:visibility="gone" />
+    <androidx.core.widget.NestedScrollView android:id="@+id/replayEditorScroll" android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true" android:clipToPadding="false">
+        <LinearLayout android:id="@+id/replayEditorContent" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingHorizontal="20dp" android:paddingBottom="24dp" android:orientation="vertical" />
+    </androidx.core.widget.NestedScrollView>
+    <LinearLayout android:id="@+id/replayEditorActions" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingHorizontal="20dp" android:paddingVertical="8dp" android:orientation="vertical">
+        <com.google.android.material.button.MaterialButton android:id="@+id/replayNext" style="@style/Widget.SoulBot.PrimaryButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/replayPrevious" style="@style/Widget.SoulBot.OutlinedButton"
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:text="上一步" />
+    </LinearLayout>
+</LinearLayout>

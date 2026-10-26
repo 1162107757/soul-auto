@@ -4,6 +4,7 @@ data class ReplyContextAnalysis(
     val focusIncoming: List<String>,
     val latestIsLowInformation: Boolean,
     val supportingTranscript: String,
+    val needsSupportingContext: Boolean = latestIsLowInformation,
 )
 
 /** Selects the real topic when the newest message is only an acknowledgement. */
@@ -18,6 +19,9 @@ object ConversationReplyContext {
     )
 
     private val fillerOnly = Regex("""^(?:嗯|恩|哦|噢|啊|呐|呢|哇|哈|嘿|是的|对的|好的)+$""")
+    private val contextualAnswerPattern = Regex(
+        "^(?:会|不会|有|没有|没|对|不对|是|不是|能|不能|可以|不行|还没|没有了|没去|去了|不去|喜欢|不喜欢|想|不想)(?:的|呀|啊|呢|啦|哦|哇|吧){0,2}$",
+    )
 
     fun isLowInformation(text: String): Boolean {
         val normalized = text.lowercase()
@@ -25,6 +29,9 @@ object ConversationReplyContext {
         return normalized in exactFillers ||
             (normalized.length <= 10 && fillerOnly.matches(normalized))
     }
+
+    /** A complete answer can be short; this flag asks for context, not a longer reply. */
+    fun isContextDependentAnswer(text: String): Boolean = contextualAnswerPattern.matches(comparableText(text))
 
     private val questionClues = listOf(
         "什么", "为啥", "为什么", "怎么", "咋", "哪里", "哪儿",
@@ -48,30 +55,33 @@ object ConversationReplyContext {
         if (clean.isEmpty()) return false
         if ('?' in clean || '？' in clean) return true
         val comparable = comparableText(clean)
-        if (comparable.endsWith("吗") || comparable.endsWith("么")) return true
-        val statement = comparable.replace(Regex("(?:没什么|没啥|没怎么|不知道怎么|不知怎么|不管怎么|无论怎么|想怎么|怎么都|什么都)"), "")
+        if (comparable.endsWith("吗")) return true
+        val statement = comparable
+            .replace(Regex("(?:不知|不知道|说不清|没想好|不确定)(?:道)?(?:该|要|能|是)?(?:为什么|怎么|咋|什么|哪里|哪儿|哪个|多少|几岁|多大)"), "")
+            .replace(Regex("(?:没什么|没啥|没怎么|不管怎么|无论怎么|想怎么|怎么都|什么都)"), "")
+        if (statement.endsWith("么")) return true
+        if (Regex("(?:你|您).*(?:没|没有)$").containsMatchIn(statement) ||
+            Regex("(?:下班|上班|吃饭|到家|睡觉|起床|回来|到了|吃了|睡了)(?:了)?(?:没|没有)$")
+                .containsMatchIn(statement)) return true
         return questionClues.any { clue -> statement.contains(clue) }
     }
 
     fun isConversationClosing(text: String): Boolean {
-        val comparable = comparableText(text)
-        return closingClues.any { comparable.contains(comparableText(it)) }
+        if (asksQuestion(text)) return false
+        return text.split(Regex("[，。！？!?、,.\\n]"))
+            .any { clause ->
+                val comparable = comparableText(clause)
+                val reportedOrNegated = Regex("(?:他说|她说|说了句|跟我说|说晚安|不想|不打算|不准备|还没|没想|不是要|不睡|别|不要)")
+                    .containsMatchIn(comparable)
+                !reportedOrNegated && closingClues.any { comparable.contains(comparableText(it)) }
+            }
     }
 
     /** Contextual advice only: never a schedule that forces a question. */
     fun responseGuidance(
         thread: List<Pair<String, String>>,
         focusIncoming: List<String>,
-    ): String {
-        val latest = focusIncoming.lastOrNull(String::isNotBlank).orEmpty()
-        if (isConversationClosing(latest)) return "对方正在收尾，简短回应即可，不开启新话题或追加问题。"
-        if (focusIncoming.any(::asksQuestion)) return "先回答对方实际问的问题；回答完整即可，不附带对等盘问。"
-        val recentOutgoing = thread.filter { it.first == "out" }.takeLast(2).map { it.second }
-        if (recentOutgoing.any(::asksQuestion)) {
-            return "最近已经问过问题，优先用具体反应或看法接住回答，给对方自由展开的空间，不再连续盘问。"
-        }
-        return "可以接一个细节、表达看法，确有必要时才问一个容易回答的问题；陈述句也可以自然接话，不必凑问号。"
-    }
+    ): String = ReplyRhythmPolicy.guidance(thread, focusIncoming)
 
     fun hasEngagingHook(reply: String): Boolean {
         val comparable = comparableText(reply)
@@ -89,10 +99,11 @@ object ConversationReplyContext {
             recent.filter { it.first == "in" }.takeLast(1).map { it.second }
         }
         val lowInformation = focus.lastOrNull()?.let(::isLowInformation) == true
-        if (!lowInformation) return ReplyContextAnalysis(focus, false, "")
+        val needsContext = lowInformation || focus.any(::isContextDependentAnswer)
+        if (!needsContext) return ReplyContextAnalysis(focus, false, "")
 
         val anchorIndex = recent.indexOfLast { (role, text) ->
-            role == "in" && !isLowInformation(text)
+            role == "in" && !isLowInformation(text) && !isContextDependentAnswer(text)
         }
         val selectedIndices = linkedSetOf<Int>()
         if (anchorIndex >= 0) {
@@ -107,6 +118,6 @@ object ConversationReplyContext {
             val (role, text) = recent[index]
             "${if (role == "in") "对方" else "我"}：$text"
         }
-        return ReplyContextAnalysis(focus, true, transcript)
+        return ReplyContextAnalysis(focus, lowInformation, transcript, needsContext)
     }
 }

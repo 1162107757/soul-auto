@@ -177,6 +177,21 @@ class ConversationMemoryDatabase(context: Context) :
 
     fun messageCount(): Int = scalarCount("conversation_messages")
 
+    /** Read-only picker data. Replay never changes the stored conversation or sends a message. */
+    fun replayContacts(limit: Int = 100): List<String> = buildList {
+        readableDatabase.rawQuery(
+            "SELECT contact FROM conversation_messages GROUP BY contact " +
+                "ORDER BY MAX(observed_at) DESC, contact ASC LIMIT ?",
+            arrayOf(limit.coerceIn(1, 500).toString()),
+        ).use { cursor -> while (cursor.moveToNext()) add(cursor.getString(0)) }
+    }
+
+    /** Oldest to newest; the picker must cut at the chosen incoming event before generation. */
+    fun replayEntries(contact: String, limit: Int = 200): List<ConversationMemoryEntry> {
+        val clean = cleanContact(contact) ?: return emptyList()
+        return recentEntries(clean, limit.coerceIn(1, 500))
+    }
+
     fun contactCount(): Int {
         readableDatabase.rawQuery(
             "SELECT COUNT(DISTINCT contact) FROM conversation_messages",

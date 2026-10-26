@@ -235,6 +235,9 @@ object ReplyNaturalness {
         .removeSurrounding("\"")
         .trim()
 
+    // Legacy guidance flags stay source-compatible, but style preferences alone
+    // must not reject a usable answer and trigger a regenerate-until-question loop.
+    @Suppress("UNUSED_PARAMETER")
     fun rejectionReason(
         text: String,
         requireTopicContinuation: Boolean = false,
@@ -246,31 +249,39 @@ object ReplyNaturalness {
         val clean = text.trim()
         val trailingLatin = Regex("""([A-Za-z]{2,})$""").find(clean)
             ?.groupValues?.getOrNull(1)?.lowercase()
-        val genericContinuation = setOf(
-            "怎么了", "怎么啦", "然后呢", "还有呢", "那你呢", "真的吗", "是吗",
-            "哦", "嗯", "嗯嗯", "好的", "行吧", "哈哈", "哈哈哈",
-        ).map(::comparableText).toSet()
         return when {
             clean.isEmpty() -> "内容为空"
-            clean.length > 100 -> "内容太长"
             artificialPhrases.any(clean::contains) -> "包含明显的 AI 套话"
             recentReplies.any { comparableText(it) == comparableText(clean) } -> "与最近回复重复"
             trailingLatin != null && trailingLatin !in allowedTrailingLatin ->
                 "结尾包含疑似模型残片"
-            profile != null && profile.sampleCount >= 8 &&
-                clean.length > profile.averageLength * 3 + 12 ->
-                "长度明显偏离个人聊天习惯"
-            requireEngagingHook && flatClosers.any(clean::contains) ->
-                "回复只是在附和或替对方下结论"
-            requireTopicContinuation &&
-                (ConversationReplyContext.isLowInformation(clean) ||
-                    comparableText(clean) in genericContinuation) ->
-                "没有延续前文话题"
-            requireEngagingHook && !ConversationReplyContext.hasEngagingHook(clean) ->
-                "回答后缺少自然的话题引子"
-            forbidQuestion && ConversationReplyContext.asksQuestion(clean) ->
-                "这一轮不应继续追问"
             else -> null
+        }
+    }
+
+    /** Review hints only. A short answer or a missing question mark is not a failure. */
+    fun styleWarnings(
+        text: String,
+        requireTopicContinuation: Boolean = false,
+        requireEngagingHook: Boolean = false,
+        forbidQuestion: Boolean = false,
+        profile: ChatStyleProfile? = null,
+    ): List<String> = buildList {
+        val clean = text.trim()
+        if (clean.isEmpty()) return@buildList
+        if (clean.length > 100) add("回复偏长，可检查是否有多余解释")
+        if (profile != null && profile.sampleCount >= 8 &&
+            clean.length > profile.averageLength * 3 + 12) {
+            add("长度偏离已有样本，仅供人工判断")
+        }
+        if (requireEngagingHook && flatClosers.any(clean::contains)) {
+            add("可能只是在附和或替对方下结论，请结合上下文判断")
+        }
+        if (requireTopicContinuation && ConversationReplyContext.isLowInformation(clean)) {
+            add("回复较简短，检查是否已接住前文；自然收尾不必延长")
+        }
+        if (forbidQuestion && ConversationReplyContext.asksQuestion(clean)) {
+            add("可能连续提问，检查问题是否必要")
         }
     }
 }

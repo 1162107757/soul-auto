@@ -13,6 +13,9 @@
 
                 <TextView android:id="@+id/tvStyleProfile" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:lineSpacingExtra="3dp" android:text="风格档案会从人工样本中自动更新。" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
 
+                <com.google.android.material.button.MaterialButton android:id="@+id/rowChatReplay" style="@style/Widget.SoulBot.OutlinedButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="聊天回放与对比" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="用多轮上下文盲选回复，保存你的改写与原因。仅测试记录不会用于学习。" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
+
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="回复反馈" android:textAppearance="@style/TextAppearance.SoulBot.Section" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="先选回复场景，再标记“像我”或“不像我”。差评可以补充原因，也可以直接保存。" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" />
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="回复场景（单选）" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:textColor="?attr/colorOnSurface" />

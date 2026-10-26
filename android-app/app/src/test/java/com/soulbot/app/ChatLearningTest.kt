@@ -127,29 +127,33 @@ class ChatLearningTest {
     }
 
     @Test
-    fun rejectsEmptyAcknowledgement_whenTheLatestMessageNeedsTopicContinuation() {
+    fun shortReplyIsAdvisoryRatherThanARegenerationTrigger() {
         assertEquals(
-            "没有延续前文话题",
+            null,
             ReplyNaturalness.rejectionReason("嗯嗯", requireTopicContinuation = true),
         )
         assertEquals(
-            "没有延续前文话题",
+            null,
             ReplyNaturalness.rejectionReason("然后呢", requireTopicContinuation = true),
         )
         assertEquals(
             null,
             ReplyNaturalness.rejectionReason("那你这班上的确实够累", requireTopicContinuation = true),
         )
+        assertTrue(
+            ReplyNaturalness.styleWarnings("嗯嗯", requireTopicContinuation = true)
+                .any { it.contains("自然收尾不必延长") },
+        )
     }
 
     @Test
-    fun aPlannedHookMustBeSpecificRatherThanGeneric() {
+    fun aCompleteAnswerDoesNotNeedAnAddedHookToPass() {
         assertEquals(
-            "回答后缺少自然的话题引子",
+            null,
             ReplyNaturalness.rejectionReason("我25", requireEngagingHook = true),
         )
         assertEquals(
-            "回答后缺少自然的话题引子",
+            null,
             ReplyNaturalness.rejectionReason("我25，你呢", requireEngagingHook = true),
         )
         assertEquals(
@@ -162,9 +166,9 @@ class ChatLearningTest {
     }
 
     @Test
-    fun nonQuestionTurnRejectsAnotherFollowUpQuestion() {
+    fun questionRhythmIsAdviceRatherThanAMechanicalQuota() {
         assertEquals(
-            "这一轮不应继续追问",
+            null,
             ReplyNaturalness.rejectionReason(
                 "这雨确实烦，你今天出门了吗？",
                 forbidQuestion = true,
@@ -177,19 +181,23 @@ class ChatLearningTest {
                 forbidQuestion = true,
             ),
         )
+        assertTrue(
+            ReplyNaturalness.styleWarnings("你今天出门了吗？", forbidQuestion = true)
+                .any { it.contains("连续提问") },
+        )
     }
 
     @Test
-    fun rejectsFlatRepliesSeenInRealConversations() {
+    fun flatReplyWarningsNeedHumanContextNotAnAutomaticRejection() {
         assertEquals(
-            "回复只是在附和或替对方下结论",
+            null,
             ReplyNaturalness.rejectionReason(
                 "这天气确实不想出门",
                 requireEngagingHook = true,
             ),
         )
         assertEquals(
-            "回复只是在附和或替对方下结论",
+            null,
             ReplyNaturalness.rejectionReason(
                 "这种还好，基本没瘾了",
                 requireEngagingHook = true,
@@ -209,6 +217,19 @@ class ChatLearningTest {
                 requireEngagingHook = true,
             ),
         )
+        assertTrue(
+            ReplyNaturalness.styleWarnings("这种还好，基本没瘾了", requireEngagingHook = true)
+                .any { it.contains("替对方下结论") },
+        )
+    }
+
+    @Test
+    fun lengthAndProfileDoNotHardRejectAnOtherwiseValidReply() {
+        val text = "确实得先把这件事的前因后果解释清楚。".repeat(8)
+        val profile = ChatStyleProfile(20, 8, 0, 10, 0)
+        assertEquals(null, ReplyNaturalness.rejectionReason(text, profile = profile))
+        assertTrue(ReplyNaturalness.styleWarnings(text, profile = profile).isNotEmpty())
+        assertTrue(ReplyNaturalness.styleWarnings("我25", requireEngagingHook = true).isEmpty())
     }
 
     @Test

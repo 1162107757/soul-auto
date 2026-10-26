@@ -105,12 +105,51 @@ class SoulBotService : AccessibilityService() {
     private var worker: Thread? = null
     private var historyDb: HistoryDatabase? = null
     private var learningDb: ChatLearningDatabase? = null
+    private var replyReplayDb: ReplyReplayDatabase? = null
     private var conversationMemoryDb: ConversationMemoryDatabase? = null
     private val qiyuSeen = ConversationSeenTracker()
+    private data class PendingQiyu(
+        val signature: String,
+        val reason: String,
+        var contactName: String = "",
+        var failures: Int = 0,
+        var retryAt: Long = 0L,
+        var prepared: QiyuPreparedReply? = null,
+    )
+    private data class QiyuPreparedReply(
+        val text: String,
+        val thread: List<Pair<String, String>>,
+        val pending: List<String>,
+        val opening: OpeningContext?,
+        val outgoingBefore: Int,
+        var attempts: Int = 0,
+        var clickedSend: Boolean = false,
+        var writtenText: String? = null,
+    )
+    private var pendingQiyu: PendingQiyu? = null
     @Volatile private var activeReplyName: String? = null
     private val restartHandler = Handler(Looper.getMainLooper())
-    private var lastDiagnosticsAt = 0L
     private var lastDiagnosticsSignature = ""
+    private var lastDiagnosticsLogAt = 0L
+    private var lastDiagnosticVisited = 0
+    private var lastDiagnosticTruncated = false
+    private val diagnosticsSampler = CoalescingDiagnosticSampler(
+        sample = { captureCompatibilitySnapshot() },
+        onComplete = { stats, error ->
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (lastDiagnosticsLogAt == 0L || now - lastDiagnosticsLogAt >= 60_000L) {
+                lastDiagnosticsLogAt = now
+                RuntimeLog.info(
+                    applicationContext, "DIAGNOSTICS", "background compatibility sample",
+                    mapOf(
+                        "durationMs" to stats.durationMs, "samples" to stats.completed,
+                        "coalescedEvents" to stats.dropped, "visited" to lastDiagnosticVisited,
+                        "truncated" to lastDiagnosticTruncated, "failureType" to error?.javaClass?.simpleName.orEmpty(),
+                    ),
+                )
+            }
+        },
+    )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -125,7 +164,8 @@ class SoulBotService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.packageName?.toString() != SOUL_PACKAGE) return
-        captureCompatibilitySnapshot()
+        // Keep the shared UI thread free for floating-window input. Never retain event/root objects here.
+        diagnosticsSampler.request(intervalMs = if (running) 5_000L else 3_000L)
     }
 
     override fun onInterrupt() {
@@ -133,6 +173,7 @@ class SoulBotService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        diagnosticsSampler.close()
         RuntimeLog.record(applicationContext, "accessibility service destroyed; shouldRun=${Prefs.getTaskShouldRun(applicationContext)}")
         restartHandler.removeCallbacksAndMessages(null)
         running = false
@@ -525,11 +566,16 @@ class SoulBotService : AccessibilityService() {
     }
 
     private fun captureCompatibilitySnapshot() {
+        if (diagnosticsSampler.isClosed() || Thread.currentThread().isInterrupted) return
+        lastDiagnosticVisited = 0
+        lastDiagnosticTruncated = false
         val now = System.currentTimeMillis()
-        if (now - lastDiagnosticsAt < 750L) return
         val currentRoot = root() ?: return
-        if (currentRoot.packageName?.toString() != SOUL_PACKAGE) return
-        lastDiagnosticsAt = now
+        if (currentRoot.packageName?.toString() != SOUL_PACKAGE) {
+            @Suppress("DEPRECATION")
+            currentRoot.recycle()
+            return
+        }
 
         val rootBounds = rect(currentRoot).toUiRegion()
         val effectiveBounds = AdaptiveUiPolicy.effectiveWindow(
@@ -537,45 +583,54 @@ class SoulBotService : AccessibilityService() {
             screenHeight(),
             rootBounds,
         )
+        // Collect ids/capabilities in one bounded traversal of this root. The former
+        // helpers repeatedly refreshed rootInActiveWindow and traversed the tree on main.
+        val ids = mutableSetOf<String>()
+        var localChannel = false
+        var matchLabel = false
+        var matchProfile = false
+        var visibleNodeCount = 0
+        val scan = countVisibleNodes(currentRoot) { node ->
+            if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return@countVisibleNodes
+            val bounds = rect(node).toUiRegion()
+            if (!bounds.isValid || bounds.intersect(effectiveBounds) == null) return@countVisibleNodes
+            visibleNodeCount++
+            val id = node.viewIdResourceName.orEmpty()
+            if (id.isNotBlank()) ids += id
+            val title = textOf(node)
+            if (id == ID_SQUARE_CHANNEL_TAB && title.isNotBlank() && title != "关注" && title != "推荐") localChannel = true
+            if (title == "灵魂匹配" || title == "开始匹配") matchLabel = true
+            if (id == ID_GENERIC_TITLE && (title.startsWith("Ta的引力签") || title.startsWith("Ta的星座"))) matchProfile = true
+        }
+        lastDiagnosticVisited = scan.visited
+        lastDiagnosticTruncated = scan.truncated
+        if (diagnosticsSampler.isClosed() || Thread.currentThread().isInterrupted) return
+        val hasInput = ID_INPUT_BOX in ids
         val capabilities = buildSet {
-            if (findVisibleById(ID_PLANET_TAB) != null ||
-                findVisibleById(ID_SQUARE_TAB) != null ||
-                findVisibleById(ID_MSG_TAB) != null
-            ) add(SoulUiCapability.BOTTOM_NAV)
-            if (findVisibleById(ID_CONV_LIST) != null || findVisibleById(ID_CONV_NAME) != null) {
-                add(SoulUiCapability.CHAT_LIST)
-            }
-            if (findVisibleById(ID_INPUT_BOX) != null) add(SoulUiCapability.CHAT_INPUT)
-            if (findVisibleById(ID_SEND_BUTTON) != null) add(SoulUiCapability.SEND_BUTTON)
-            if (findVisibleById(ID_SQUARE_PAGER) != null) add(SoulUiCapability.SQUARE)
-            if (findByIds(ID_SQUARE_CHANNEL_TAB).any { node ->
-                    if (!isVisibleOnScreen(node)) return@any false
-                    val title = textOf(node)
-                    title.isNotBlank() && title != "关注" && title != "推荐"
-                }
-            ) add(SoulUiCapability.LOCAL_CHANNEL)
-            if (findVisibleById(ID_SOUL_MATCH_PERCENT) != null || isSoulPlanetSurface()) {
-                add(SoulUiCapability.SOUL_MATCH)
-            }
-            if (findVisibleById(ID_VOICE_BUBBLE) != null) add(SoulUiCapability.VOICE_MESSAGE)
-            if (findVisibleById(ID_QIYU_CHAT) != null) add(SoulUiCapability.QIYU)
-            if (findVisibleById(ID_CHAT_SECRET) != null) add(SoulUiCapability.PROFILE_DM)
+            if (ID_PLANET_TAB in ids || ID_SQUARE_TAB in ids || ID_MSG_TAB in ids) add(SoulUiCapability.BOTTOM_NAV)
+            if (ID_CONV_LIST in ids || ID_CONV_NAME in ids) add(SoulUiCapability.CHAT_LIST)
+            if (hasInput) add(SoulUiCapability.CHAT_INPUT)
+            if (ID_SEND_BUTTON in ids) add(SoulUiCapability.SEND_BUTTON)
+            if (ID_SQUARE_PAGER in ids) add(SoulUiCapability.SQUARE)
+            if (localChannel) add(SoulUiCapability.LOCAL_CHANNEL)
+            if (ID_SOUL_MATCH_PERCENT in ids || (!hasInput && matchLabel)) add(SoulUiCapability.SOUL_MATCH)
+            if (ID_VOICE_BUBBLE in ids) add(SoulUiCapability.VOICE_MESSAGE)
+            if (ID_QIYU_CHAT in ids) add(SoulUiCapability.QIYU)
+            if (ID_CHAT_SECRET in ids) add(SoulUiCapability.PROFILE_DM)
         }
-        val page = when (currentScreen()) {
-            Screen.CHAT -> "普通聊天"
-            Screen.SOUL_MATCH_CHAT -> "灵魂匹配聊天"
-            Screen.SOUL_PLANET -> "星球"
-            Screen.LIST -> "聊天列表"
-            Screen.SQUARE -> "广场"
-            Screen.PROFILE -> "用户主页"
-            Screen.GIFT -> "礼物限制弹窗"
-            Screen.NO_SEND -> "暂不聊天弹窗"
-            Screen.GREETING_LIST -> "新招呼列表"
-            Screen.QIYU_POPUP -> "奇遇铃"
-            Screen.OUTSIDE -> "Soul 外部"
-            Screen.OTHER -> "未识别页面"
+        val page = when {
+            ID_QIYU_CHAT in ids -> "奇遇铃"
+            ID_NO_SEND_CLOSE in ids -> "暂不聊天弹窗"
+            ID_GIFT_CLOSE in ids -> "礼物限制弹窗"
+            hasInput && (ID_SOUL_MATCH_PERCENT in ids || matchProfile) -> "灵魂匹配聊天"
+            hasInput -> "普通聊天"
+            ID_CHAT_SECRET in ids -> "用户主页"
+            ID_GREETING_TIPS in ids -> "新招呼列表"
+            ID_SQUARE_PAGER in ids -> "广场"
+            ID_CONV_NAME in ids -> "聊天列表"
+            matchLabel -> "星球"
+            else -> "未识别页面"
         }
-        val visibleNodeCount = countVisibleNodes(currentRoot)
         val signature = listOf(
             page,
             rootBounds,
@@ -598,19 +653,23 @@ class SoulBotService : AccessibilityService() {
         )
     }
 
-    private fun countVisibleNodes(rootNode: AccessibilityNodeInfo): Int {
-        val pending = ArrayDeque<AccessibilityNodeInfo>()
-        pending.add(rootNode)
-        var count = 0
-        while (pending.isNotEmpty() && count < 5000) {
-            val node = pending.removeFirst()
-            if (runCatching { node.isVisibleToUser }.getOrDefault(false)) count++
-            for (index in 0 until node.childCount) {
-                runCatching { node.getChild(index) }.getOrNull()?.let(pending::addLast)
-            }
-        }
-        return count
-    }
+    private fun countVisibleNodes(
+        rootNode: AccessibilityNodeInfo,
+        inspect: (AccessibilityNodeInfo) -> Unit,
+    ): DiagnosticTreeScan = DiagnosticTreeSampler.scan(
+        root = rootNode,
+        maxNodes = 320,
+        timeBudgetMs = 100L,
+        clock = { android.os.SystemClock.elapsedRealtime() },
+        cancelled = { diagnosticsSampler.isClosed() || Thread.currentThread().isInterrupted },
+        childCount = { runCatching { it.childCount }.getOrDefault(0) },
+        childAt = { node, index -> runCatching { node.getChild(index) }.getOrNull() },
+        visit = inspect,
+        release = { node ->
+            @Suppress("DEPRECATION")
+            runCatching { node.recycle() }
+        },
+    )
 
     private fun isOnChat(): Boolean {
         val screen = currentScreen()
@@ -848,7 +907,13 @@ class SoulBotService : AccessibilityService() {
             .count { it == target }
     }
 
-    private fun send(text: String): Boolean {
+    private fun send(
+        text: String,
+        expectedContact: String? = null,
+        inputTimeoutMs: Long? = null,
+        onInputWritten: (String) -> Unit = {},
+        onSendClick: () -> Unit = {},
+    ): Boolean {
         if (!isOnChat()) {
             RuntimeLog.record(applicationContext, "message send rejected; reason=not_on_chat")
             return false
@@ -862,7 +927,13 @@ class SoulBotService : AccessibilityService() {
         )
         for ((i, piece) in pieces.withIndex()) {
             var inputReady = false
+            val inputDeadline = inputTimeoutMs?.let { System.currentTimeMillis() + it }
             while (running && isOnChat() && !inputReady) {
+                if (expectedContact != null && !hasConfirmedConversationName(expectedContact)) return false
+                if (inputDeadline != null && System.currentTimeMillis() >= inputDeadline) {
+                    RuntimeLog.record(applicationContext, "message input timed out; attemptId=$attemptId; part=${i + 1}")
+                    return false
+                }
                 setNextStep("输入第 ${i + 1} 段回复")
                 val input = findById(ID_INPUT_BOX)
                 if (input == null) {
@@ -876,6 +947,7 @@ class SoulBotService : AccessibilityService() {
                 }
                 tapNode(input)
                 sleep(300)
+                if (expectedContact != null && !hasConfirmedConversationName(expectedContact)) return false
                 if (!setText(input, piece)) {
                     RuntimeLog.record(
                         applicationContext,
@@ -885,6 +957,7 @@ class SoulBotService : AccessibilityService() {
                     sleep(SQUARE_RETRY_DELAY_MS)
                     continue
                 }
+                onInputWritten(piece)
                 inputReady = true
             }
             if (!inputReady) return false
@@ -904,17 +977,20 @@ class SoulBotService : AccessibilityService() {
 
             var sent = false
             for (sendAttempt in 0 until 2) {
+                if (expectedContact != null && !hasConfirmedConversationName(expectedContact)) return false
                 setNextStep(
                     if (sendAttempt == 0) "发送第 ${i + 1} 段回复"
                     else "上次点击未生效，再发送一次",
                 )
                 val currentButton = findVisibleById(ID_SEND_BUTTON) ?: break
+                onSendClick()
                 tapNode(if (sendAttempt == 0) sendButton else currentButton)
 
                 val confirmDeadline = System.currentTimeMillis() + 10_000L
                 while (running && isOnChat() && System.currentTimeMillis() < confirmDeadline) {
+                    if (expectedContact != null && !hasConfirmedConversationName(expectedContact)) return false
                     if (outgoingOccurrenceCount(piece) > beforeOutgoingCount ||
-                        visibleMessageOccurrenceCount(piece) > beforeVisibleCount
+                        (expectedContact == null && visibleMessageOccurrenceCount(piece) > beforeVisibleCount)
                     ) {
                         sent = true
                         break
@@ -1359,17 +1435,24 @@ class SoulBotService : AccessibilityService() {
             .distinct()
         var systemPrompt = baseSystemPrompt() +
             " 必须优先回应对方本轮最新发来的内容，不能忽略最新问题，也不能照搬之前已经发过的回复。"
-        systemPrompt += personalizationContext(contactName, latest.joinToString("\n"))
+        systemPrompt += personalizationContext(
+            contactName, latest.joinToString("\n"),
+            styleQuery = recent.takeLast(12).joinToString("\n") { (role, text) ->
+                "${if (role == "in") "对方" else "我"}：$text"
+            },
+            excludeContextKey = ReplyReplayLogic.contextKey(
+                recent.map { ReplayTurn(it.first, it.second) }, ReplyScene.CHAT,
+            ),
+        )
         if (avoid.isNotEmpty()) {
             systemPrompt += " 以下句子已经发过或因重复被拒绝，禁止再次输出：${avoid.joinToString("｜")}"
         }
         if (latest.isNotEmpty()) {
             systemPrompt += "\n本轮重点回应的消息：${latest.joinToString(" / ")}"
         }
-        if (contextAnalysis.latestIsLowInformation) {
-            systemPrompt += "\n对方最新一句只是“哦、嗯、对”这类低信息承接语，不能只围绕这几个字空泛回应。" +
-                "请结合下面最近多轮，判断它承接的具体话题，再自然延续那个话题：可以接一个相关细节、说一点自己的真实反应，或问一个紧贴该话题的小问题。" +
-                "禁止只回复语气词，也不要输出“然后呢”“还有呢”“怎么啦”“那你呢”这类无上下文的万能追问。" +
+        if (contextAnalysis.needsSupportingContext) {
+            systemPrompt += "\n最新消息需要结合前文解释，先判断它是在回答哪句话，不要仅因字少判定冷淡。" +
+                "回应可以简短，不要求开启新话题、加引子或追加问题，也不要编造自身经历来附和。" +
                 "\n用于判断话题的最近对话：\n${contextAnalysis.supportingTranscript}"
         }
         systemPrompt += "\n" + ConversationReplyContext.responseGuidance(recent, latest)
@@ -1403,8 +1486,6 @@ class SoulBotService : AccessibilityService() {
         thread: List<Pair<String, String>>,
         focusIncoming: List<String>,
     ): String? {
-        val requireTopicContinuation = focusIncoming.lastOrNull()
-            ?.let(ConversationReplyContext::isLowInformation) == true
         val rejected = mutableListOf<String>().apply {
             addAll(learningDb?.dislikedReplies(contactName, 6).orEmpty())
         }
@@ -1439,7 +1520,6 @@ class SoulBotService : AccessibilityService() {
 
             val issue = ReplyNaturalness.rejectionReason(
                 candidate,
-                requireTopicContinuation = requireTopicContinuation,
                 profile = profile,
                 recentReplies = recentReplies + rejected,
             )
@@ -1547,12 +1627,20 @@ class SoulBotService : AccessibilityService() {
         latestMessage: String,
         scene: ReplyScene = ReplyScene.CHAT,
         includeMemory: Boolean = true,
+        styleQuery: String = latestMessage,
+        excludeContextKey: String = "",
     ): String {
         return buildString {
             val db = learningDb
             if (db != null && Prefs.getStyleLearningEnabled(applicationContext)) {
                 val profile = db.styleProfile()
-                val examples = db.relevantStyleSamples(latestMessage, 5, scene)
+                val preferences = runCatching {
+                    replyReplayDb?.relevantExamples(styleQuery, scene, 3, excludeContextKey)
+                }.onFailure { error ->
+                    RuntimeLog.record(applicationContext, "reply preference lookup failed", error)
+                }.getOrNull().orEmpty()
+                // Prefer reviewed multi-turn corrections. Legacy pairs remain a fallback.
+                val examples = if (preferences.isEmpty()) db.relevantStyleSamples(styleQuery, 3, scene) else emptyList()
                 val dislikedHints = db.dislikedStyleHints(scene)
                 if (dislikedHints.isNotEmpty()) {
                     append("\n用户对这个场景明确不喜欢的表达类型：").append(dislikedHints.joinToString("、"))
@@ -1561,8 +1649,8 @@ class SoulBotService : AccessibilityService() {
                 if (profile.sampleCount > 0) {
                     append("\n\n这是用户本人聊天风格档案，只模仿表达习惯，不要声称自己是某个角色，也不要照抄事实或整句。\n")
                     append(profile.promptLine())
-                    val hints = profile.compactStyleHints()
-                    if (hints.isNotBlank()) append(hints)
+                    // Frequent words and endings may be names or topic fragments, not style rules.
+                    append("不要刻意重复口头词、收尾或固定句式；这些统计不是字数或提问配额。")
                 }
                 if (examples.isNotEmpty()) {
                     append("\n下面是用户本人过去的人工回复样本。只参考长度、措辞和节奏，不要照抄其中的人名、事实或句子。\n")
@@ -1571,6 +1659,7 @@ class SoulBotService : AccessibilityService() {
                         append("\n我：").append(sample.myMessage)
                     }
                 }
+                append(ReplyPreferencePrompt.build(preferences))
             }
             if (includeMemory && db != null &&
                 Prefs.getContactMemoryEnabled(applicationContext) &&
@@ -1811,37 +1900,97 @@ class SoulBotService : AccessibilityService() {
 
     private fun handleQiyu(): Boolean {
         if (currentScreen() != Screen.QIYU_POPUP) return false
-        val signature = textOf(findById(ID_QIYU_SIGNATURE))
-        val reason = textOf(findById(ID_QIYU_REASON))
-        val chatBtn = findById(ID_QIYU_CHAT) ?: return false
+        val chatBtn = findVisibleById(ID_QIYU_CHAT) ?: return false
+        val signature = textOf(findVisibleById(ID_QIYU_SIGNATURE))
+        val reason = textOf(findVisibleById(ID_QIYU_REASON))
+        val session = pendingQiyu?.takeIf {
+            it.contactName.isBlank() && it.signature == signature && it.reason == reason
+        } ?: PendingQiyu(signature, reason)
+        val remaining = session.retryAt - System.currentTimeMillis()
+        if (remaining > 0L) { sleep(minOf(500L, remaining)); return false }
+        pendingQiyu = session
         setNextStep("打开奇遇铃私聊")
-        tapNode(chatBtn)
-        sleep(2500)
-        if (!isOnChat()) {
-            if (isOnGift()) { skipGift(); return false }
-            setNextStep("奇遇铃私聊未打开，准备重试", 3000)
-            sleep(3000)
+        if (!tapNode(chatBtn)) {
+            return deferQiyu(session, "open_click_failed", "奇遇铃私聊按钮尚未生效")
+        }
+        sleep(500)
+        return resumePendingQiyu()
+    }
+
+    private fun deferQiyu(session: PendingQiyu, reason: String, status: String): Boolean {
+        if (pendingQiyu !== session) return false
+        session.failures++
+        val delay = QiyuConversationPolicy.retryDelayMs(session.failures)
+        session.retryAt = System.currentTimeMillis() + delay
+        RuntimeLog.record(applicationContext,
+            "qiyu pending; reason=$reason; failures=${session.failures}; retryMs=$delay; " +
+                "contactId=${DiagnosticIdentity.contactId(applicationContext, session.contactName)}; prepared=${session.prepared != null}")
+        setNextStep("$status；保留当前会话，稍后复核", delay)
+        return false
+    }
+
+    /** A missing title is a loading/compatibility issue, not permission to abandon the encounter. */
+    private fun resumePendingQiyu(): Boolean {
+        val session = pendingQiyu ?: return false
+        val remaining = session.retryAt - System.currentTimeMillis()
+        if (remaining > 0L) {
+            sleep(minOf(500L, remaining))
             return false
         }
-        val qiyuTag = readQiyuSignature()
-        // The popup signature is profile text, not a stable contact identity.
-        val contactName = displayedConversationName().trim()
-        if (contactName.isBlank()) {
-            setNextStep("奇遇铃联系人未识别，本轮不发送")
-            gotoChatList()
-            return false
+        val deadline = System.currentTimeMillis() + QiyuConversationPolicy.LOAD_TIMEOUT_MS
+        while (running && isSoulForeground()) {
+            val screen = currentScreen()
+            if (screen == Screen.GIFT || screen == Screen.NO_SEND) {
+                pendingQiyu = null
+                RuntimeLog.record(applicationContext, "qiyu cancelled; reason=chat_not_allowed; screen=${screen.name}")
+                if (screen == Screen.GIFT) skipGift() else skipNoSend()
+                return false
+            }
+            val name = if (isOnChat()) displayedConversationName().trim() else ""
+            if (name.isNotBlank()) {
+                if (session.contactName.isNotBlank() && !hasConfirmedConversationName(session.contactName)) {
+                    pendingQiyu = null
+                    RuntimeLog.record(applicationContext, "qiyu cancelled; reason=contact_changed")
+                    return false
+                }
+                session.contactName = name
+                break
+            }
+            val wait = deadline - System.currentTimeMillis()
+            if (wait <= 0L) return deferQiyu(session, "contact_not_loaded", "奇遇铃联系人仍未读取到，未发送")
+            setNextStep("等待奇遇铃聊天标题加载，确认联系人后再发送", wait)
+            sleep(minOf(500L, wait))
+        }
+        if (!running || !isOnChat() || !hasConfirmedConversationName(session.contactName)) return false
+        val contactName = session.contactName
+
+        session.prepared?.let { prepared ->
+            return sendPreparedQiyu(session, prepared)
         }
         if (!convertIncomingVoiceMessages()) {
-            setNextStep("奇遇铃语音尚未转写，留待消息任务处理")
-            gotoChatList()
-            return false
+            return deferQiyu(session, "voice_unresolved", "奇遇铃语音尚未完成转写，未发送")
         }
-        val initialThread = readThread()
-        val thread = if (OpeningConversationRoute.pendingIncoming(initialThread).isNotEmpty()) {
-            waitForStableThread(contactName)
-        } else initialThread
-        if (!running || !isOnChat() || !isExpectedConversation(contactName)) return false
-        if (pendingIncomingVoiceBubbles().isNotEmpty()) return false
+        // Wait for outgoing history too: an empty first snapshot does not prove this is a new chat.
+        var thread = readThread()
+        var stableSince = System.currentTimeMillis()
+        val loadDeadline = stableSince + QiyuConversationPolicy.LOAD_TIMEOUT_MS
+        while (running && isOnChat() && hasConfirmedConversationName(contactName) &&
+            System.currentTimeMillis() < loadDeadline && System.currentTimeMillis() - stableSince < MESSAGE_SETTLE_MS) {
+            setNextStep("确认奇遇铃聊天内容已加载", 500)
+            sleep(500)
+            val latest = readThread()
+            if (latest != thread) stableSince = System.currentTimeMillis()
+            thread = latest
+        }
+        if (!running || !isOnChat() || !hasConfirmedConversationName(contactName)) {
+            return deferQiyu(session, "chat_changed_during_load", "奇遇铃聊天页面变化，未发送")
+        }
+        if (pendingIncomingVoiceBubbles().isNotEmpty()) {
+            return deferQiyu(session, "voice_arrived", "奇遇铃收到新语音，等待转写")
+        }
+        if (QiyuConversationPolicy.shouldWaitForHistory(thread, conversationMemoryDb?.hasHistory(contactName) == true)) {
+            return deferQiyu(session, "stored_history_not_visible", "奇遇铃已有本地记录，但页面内容尚未读到")
+        }
         val route = OpeningConversationRoute.action(thread, conversationMemoryDb?.hasHistory(contactName) == true)
         learnFromManualReplies(contactName, thread)
         val incoming = thread.filter { it.first == "in" }.map { it.second }
@@ -1850,6 +1999,9 @@ class SoulBotService : AccessibilityService() {
         if (route == OpeningConversationAction.SKIP ||
             (route == OpeningConversationAction.REPLY && pending.isEmpty())
         ) {
+            pendingQiyu = null
+            RuntimeLog.record(applicationContext,
+                "qiyu skipped; reason=already_answered; contactId=${DiagnosticIdentity.contactId(applicationContext, contactName)}; messages=${thread.size}")
             setNextStep("奇遇铃已有会话且没有新内容，不重复发送开场")
             gotoChatList()
             return false
@@ -1857,45 +2009,103 @@ class SoulBotService : AccessibilityService() {
         val openingContext = OpeningContext(
             ReplyScene.QIYU,
             contactName,
-            listOf(signature, qiyuTag).filter(String::isNotBlank).joinToString("\n"),
+            listOf(session.signature, readQiyuSignature()).filter(String::isNotBlank).joinToString("\n"),
             SoulMatchContent.zodiac(visibleTitleTexts()),
-            reason,
+            session.reason,
         )
         val replying = route == OpeningConversationAction.REPLY
         val finalReply = if (replying) {
             generateValidatedChatReply(contactName, thread, pending)
         } else generateValidatedOpening("优先生成奇遇铃开场", openingContext)
         if (finalReply == null) {
-            if (currentConversationHasChanged(contactName, thread)) {
-                return replyToCurrentConversation(contactName, qiyuSeen)
-            }
-            setNextStep("奇遇铃回复生成失败，本轮结束避免卡住", 2000)
-            sleep(2000)
-            gotoChatList()
-            return false
+            return deferQiyu(session, "generation_failed", "奇遇铃回复生成失败，未发送")
         }
-        if (!running || !isOnChat() || !isExpectedConversation(contactName) ||
+        if (!running || !isOnChat() || !hasConfirmedConversationName(contactName) ||
             pendingIncomingVoiceBubbles().isNotEmpty() ||
-            incomingSignature(readThread()) != incomingSignature(thread)
+            readThread() != thread
         ) {
-            setNextStep("奇遇铃会话有变化，取消旧内容并直接回复最新消息")
-            if (running && isOnChat() && isExpectedConversation(contactName)) {
-                return replyToCurrentConversation(contactName, qiyuSeen)
+            return deferQiyu(session, "incoming_changed", "奇遇铃会话有变化，将按最新内容重新准备")
+        }
+        val sendText = splitReply(finalReply).single()
+        val prepared = QiyuPreparedReply(sendText, thread, pending, openingContext.takeUnless { replying },
+            outgoingOccurrenceCount(sendText))
+        session.prepared = prepared
+        return sendPreparedQiyu(session, prepared)
+    }
+
+    private fun sendPreparedQiyu(session: PendingQiyu, prepared: QiyuPreparedReply): Boolean {
+        val contactName = session.contactName
+        if (!running || !isOnChat() || !hasConfirmedConversationName(contactName)) return false
+        val input = findVisibleById(ID_INPUT_BOX)
+            ?: return deferQiyu(session, "input_not_loaded", "奇遇铃输入框尚未读到，保留原草稿")
+        val inputText = if (input.isShowingHintText) "" else textOf(input)
+        val recovery = QiyuConversationPolicy.sendRecovery(
+            outgoingOccurrenceCount(prepared.text) > prepared.outgoingBefore,
+            prepared.clickedSend,
+            inputText == prepared.text,
+            prepared.attempts,
+        )
+        if (recovery == QiyuSendRecovery.CONFIRMED) return finishQiyuSend(session, prepared)
+        if (pendingIncomingVoiceBubbles().isNotEmpty() || readThread() != prepared.thread) {
+            val refresh = QiyuConversationPolicy.draftRefresh(inputText, prepared.writtenText, prepared.clickedSend)
+            val cleared = refresh == QiyuDraftRefresh.CLEAR_OWNED_UNSENT && clearOwnedQiyuDraft(session, prepared)
+            if (!QiyuConversationPolicy.mayDiscardDraft(refresh, cleared)) {
+                val reason = when (refresh) {
+                    QiyuDraftRefresh.WAIT_CONFIRMATION -> "incoming_changed_send_unconfirmed"
+                    QiyuDraftRefresh.KEEP_OTHER_INPUT -> "incoming_changed_input_edited"
+                    else -> "owned_draft_clear_failed"
+                }
+                return deferQiyu(session, reason, "奇遇铃收到新内容，旧草稿尚不能安全撤回；保留原稿等待确认")
             }
-            if (isOnChat()) gotoChatList()
-            return false
+            session.prepared = null
+            return deferQiyu(session, "incoming_changed_before_send", "奇遇铃收到新内容，已撤回未发送草稿并重新准备")
         }
+        if (recovery == QiyuSendRecovery.WAIT_CONFIRMATION) {
+            return deferQiyu(session, "send_unconfirmed", "奇遇铃发送尚未确认，不重复点击，请检查当前输入框")
+        }
+        if (inputText.isNotEmpty() && inputText != prepared.text) {
+            return deferQiyu(session, "input_edited", "输入框已有其他内容，不覆盖你的草稿")
+        }
+        prepared.attempts++
         setNextStep("立即发送奇遇铃私聊回复")
-        val sent = send(finalReply)
-        if (sent) {
-            qiyuSeen.markSeen(contactName, incoming)
-            recordAutomatedInteraction(contactName, pending, finalReply, openingContext.takeUnless { replying })
-            historyDb?.record(contactName, if (replying) pending.joinToString("\n") else "奇遇铃资料：${openingContext.content}", finalReply)
-            setNextStep("奇遇铃回复已发送，返回会话列表", 1200)
-            sleep(1200)
-            gotoChatList()
+        val sent = send(prepared.text, contactName, QiyuConversationPolicy.LOAD_TIMEOUT_MS,
+            onInputWritten = { prepared.writtenText = it }, onSendClick = { prepared.clickedSend = true })
+        if (sent) return finishQiyuSend(session, prepared)
+        return deferQiyu(session, "send_failed", "奇遇铃消息未确认发出，将检查同一条草稿")
+    }
+
+    /** Never uses paste or replaces a user's edited draft when withdrawing an obsolete reply. */
+    private fun clearOwnedQiyuDraft(session: PendingQiyu, prepared: QiyuPreparedReply): Boolean {
+        if (!running || prepared.clickedSend || !isOnChat() || !hasConfirmedConversationName(session.contactName)) return false
+        val input = findVisibleById(ID_INPUT_BOX) ?: return false
+        val text = if (input.isShowingHintText) "" else textOf(input)
+        if (QiyuConversationPolicy.draftRefresh(text, prepared.writtenText, prepared.clickedSend) !=
+            QiyuDraftRefresh.CLEAR_OWNED_UNSENT) return false
+        val args = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "") }
+        val accepted = runCatching { input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)
+        if (!accepted) return false
+        val deadline = System.currentTimeMillis() + 1000L
+        while (running && System.currentTimeMillis() < deadline) {
+            if (!isOnChat() || !hasConfirmedConversationName(session.contactName)) return false
+            val current = findVisibleById(ID_INPUT_BOX) ?: return false
+            if (current.isShowingHintText || textOf(current).isEmpty()) return true
+            sleep(100)
         }
-        return sent
+        return false
+    }
+
+    private fun finishQiyuSend(session: PendingQiyu, prepared: QiyuPreparedReply): Boolean {
+        pendingQiyu = null
+        qiyuSeen.markSeen(session.contactName, prepared.thread.filter { it.first == "in" }.map { it.second })
+        recordAutomatedInteraction(session.contactName, prepared.pending, prepared.text, prepared.opening)
+        historyDb?.record(session.contactName,
+            prepared.opening?.let { "奇遇铃资料：${it.content}" } ?: prepared.pending.joinToString("\n"), prepared.text)
+        RuntimeLog.record(applicationContext,
+            "qiyu send confirmed; contactId=${DiagnosticIdentity.contactId(applicationContext, session.contactName)}; attempts=${prepared.attempts}")
+        setNextStep("奇遇铃回复已确认发送，返回会话列表", 1200)
+        sleep(1200)
+        gotoChatList()
+        return true
     }
 
     // ===== 回复会话（仅会话列表起点） =====
@@ -1948,8 +2158,23 @@ class SoulBotService : AccessibilityService() {
         if (activeReplyName == name) activeReplyName = null
     }
 
-    private fun displayedConversationName(): String =
-        textOf(findVisibleById(ID_PROFILE_NAME))
+    private fun displayedConversationName(): String {
+        val primary = findByIds(ID_PROFILE_NAME).filter(::isVisibleOnScreen).map(::textOf)
+        // Both ids already occur in supported Soul versions. Restrict the generic
+        // title fallback to the header; profile tags and message-card titles are not identities.
+        val area = activeWindowRegion()
+        val headerBottom = area.top + screenHeight() / 5
+        val headerTitles = findByIds(ID_GENERIC_TITLE)
+            .filter(::isVisibleOnScreen)
+            .filter { rect(it).bottom <= headerBottom }
+            .map(::textOf)
+        return QiyuConversationPolicy.conversationName(primary, headerTitles)
+    }
+
+    private fun hasConfirmedConversationName(name: String): Boolean {
+        val displayed = displayedConversationName()
+        return QiyuConversationPolicy.sameContact(name, displayed)
+    }
 
     private fun isExpectedConversation(name: String): Boolean {
         val displayed = displayedConversationName()
@@ -2523,6 +2748,8 @@ class SoulBotService : AccessibilityService() {
             conversationMemoryDb = null
             runCatching { learningDb?.close() }
             learningDb = null
+            runCatching { replyReplayDb?.close() }
+            replyReplayDb = null
             runCatching { historyDb?.close() }
             historyDb = null
             // A destroyed service can overlap briefly with a newly connected one.
@@ -2610,6 +2837,7 @@ class SoulBotService : AccessibilityService() {
             // Seed it once so older bot messages are not learned as human style.
             db.seedAutomatedReplies(historyDb?.getAll().orEmpty())
         }
+        replyReplayDb = ReplyReplayDatabase(applicationContext)
         val squareInterval = Prefs.getSquareInterval(applicationContext).toLong()
         var lastDm = 0L
         var lastScreenName = ""
@@ -2671,7 +2899,7 @@ class SoulBotService : AccessibilityService() {
                         "screen=${screen.name} pager=${findVisibleById(ID_SQUARE_PAGER) != null} avatar=${findVisibleById(ID_SQUARE_AVATAR) != null} name=${findVisibleById(ID_CONV_NAME) != null} input=${findVisibleById(ID_INPUT_BOX) != null}"
                     )
                 }
-                if (stuckCount > 8) {
+                if (stuckCount > 8 && pendingQiyu == null) {
                     RuntimeLog.record(
                         applicationContext,
                         "screen state stalled; screen=${screen.name}; consecutiveChecks=$stuckCount",
@@ -2686,6 +2914,19 @@ class SoulBotService : AccessibilityService() {
                 if (screen == Screen.QIYU_POPUP) {
                     handleQiyu()
                     continue
+                }
+
+                // A transient title/read/send failure must not fall through to the
+                // ordinary CHAT -> idle navigation and silently abandon an encounter.
+                if (pendingQiyu != null) {
+                    if (screen == Screen.CHAT || screen == Screen.SOUL_MATCH_CHAT || screen == Screen.OTHER) {
+                        resumePendingQiyu()
+                        continue
+                    }
+                    if (screen != Screen.OUTSIDE) {
+                        RuntimeLog.record(applicationContext, "qiyu cancelled; reason=left_chat; screen=${screen.name}")
+                        pendingQiyu = null
+                    }
                 }
 
                 if (screen != Screen.LIST &&

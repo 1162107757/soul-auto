@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/replayListRoot" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="?attr/colorSurface">
+    <include layout="@layout/view_toolbar" />
+    <TextView android:id="@+id/replaySummary" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="12dp" android:paddingBottom="8dp"
+        android:text="正在读取本地记录…" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/replayNew" style="@style/Widget.SoulBot.PrimaryButton"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginHorizontal="20dp" android:text="新建聊天回放" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="20dp" android:orientation="horizontal">
+        <com.google.android.material.button.MaterialButton android:id="@+id/replayImport" style="@style/Widget.SoulBot.OutlinedButton"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="导入 JSON" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/replayExport" style="@style/Widget.SoulBot.OutlinedButton"
+            android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:text="导出 JSON" />
+    </LinearLayout>
+    <com.google.android.material.progressindicator.LinearProgressIndicator android:id="@+id/replayListProgress"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:indeterminate="true" android:visibility="gone" />
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <ListView android:id="@+id/replayList" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:divider="?attr/colorOutlineVariant" android:dividerHeight="1dp" android:clipToPadding="false" android:paddingBottom="16dp" />
+        <TextView android:id="@+id/replayEmpty" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:padding="24dp" android:gravity="center"
+            android:text="先选一段真实对话，再比较回复\n这里只做回放，不会向 Soul 发送消息"
+            android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:visibility="gone" />
+    </FrameLayout>
+</LinearLayout>
